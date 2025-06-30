@@ -136,38 +136,77 @@ export default function AttendanceHistory() {
         📅 Attendance History
       </h1>
 
-      <table className="w-full mb-8 border text-sm text-center">
-        <thead className="bg-gray-200">
-          <tr>
-            <th className="border px-2 py-2">#</th>
-            <th className="border px-2 py-2">Date</th>
-            <th className="border px-2 py-2">Location</th>
-            <th className="border px-2 py-2">Total Hours</th>
-            <th className="border px-2 py-2">Sessions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {attendanceList.map((att, index) => (
-            <tr key={index}>
-              <td className="border px-2 py-1">{index + 1}</td>
-              <td className="border px-2 py-1">{att.date}</td>
-              <td className="border px-2 py-1">{att.location}</td>
-              <td className="border px-2 py-1">{att.totalHours || "0h 0m"}</td>
-              <td className="border px-2 py-1">
-                <ul className="list-disc list-inside text-left">
-                  {att.sessions.map((s: any, i: number) => (
-                    <li key={i}>
-                      <span className="text-green-600">Login:</span> {s.login},
-                      <span className="text-red-600"> Logout:</span>{" "}
-                      {s.logout || "⏳"}
-                    </li>
-                  ))}
-                </ul>
-              </td>
+      <div className="overflow-x-auto">
+        <table className="w-full mb-8 border text-sm text-center min-w-[800px]">
+          <thead className="bg-gray-100">
+            <tr className="text-gray-700">
+              <th className="border px-3 py-2">#</th>
+              <th className="border px-3 py-2">Date</th>
+
+              <th className="border px-3 py-2">Total Hours</th>
+              <th className="border px-3 py-2 text-left">Sessions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {attendanceList.map((att, index) => {
+              const [h = 0] = att.totalHours
+                ?.split("h")
+                .map((v: any) => parseInt(v)) || [0];
+              const isUnderworked = h < 9;
+              return (
+                <tr key={index} className="bg-white hover:bg-gray-50">
+                  <td className="border px-3 py-2">{index + 1}</td>
+                  <td className="border px-3 py-2 font-medium text-gray-700">
+                    {att.date}
+                  </td>
+                  <td className="border px-3 py-2">{att.location || "—"}</td>
+                  <td
+                    className={`border px-3 py-2 font-semibold ${
+                      isUnderworked ? "text-red-600" : "text-green-600"
+                    }`}
+                  >
+                    {att.totalHours || "0h 0m"}
+                  </td>
+                  <td className="border px-3 py-2 text-left">
+                    <ul className="space-y-3">
+                      {att.sessions.map((s: any, i: number) => (
+                        <li key={i} className="pb-2 border-b last:border-b-0">
+                          <div className="text-sm">
+                            <span className="text-green-600 font-semibold">
+                              🟢 Login:
+                            </span>{" "}
+                            {s.login || "—"}
+                          </div>
+                          {s.loginLocation && (
+                            <div className="ml-4 text-xs text-gray-600">
+                              📍 {s.loginLocation.address}
+                              <br />({s.loginLocation.lat.toFixed(5)},{" "}
+                              {s.loginLocation.lng.toFixed(5)})
+                            </div>
+                          )}
+                          <div className="text-sm mt-1">
+                            <span className="text-red-600 font-semibold">
+                              🔴 Logout:
+                            </span>{" "}
+                            {s.logout || "⏳"}
+                          </div>
+                          {s.logout && s.logoutLocation && (
+                            <div className="ml-4 text-xs text-gray-600">
+                              📍 {s.logoutLocation.address}
+                              <br />({s.logoutLocation.lat.toFixed(5)},{" "}
+                              {s.logoutLocation.lng.toFixed(5)})
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       <div className="bg-gray-50 border rounded p-6 mt-8">
         <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">

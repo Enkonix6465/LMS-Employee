@@ -43,11 +43,9 @@ const haversineDistance = (
 const parseTimeToDate = (timeStr: string): Date => {
   const [time, modifier] = timeStr.split(" ");
   let [hours, minutes, seconds] = time.split(":").map(Number);
-
   if (modifier === "PM" && hours < 12) hours += 12;
   if (modifier === "AM" && hours === 12) hours = 0;
-
-  return new Date(1970, 0, 1, hours, minutes, seconds); // 👈 Fixed
+  return new Date(1970, 0, 1, hours, minutes, seconds);
 };
 
 const calculateTotalHours = (
@@ -63,11 +61,9 @@ const calculateTotalHours = (
       const loginDate = parseTimeToDate(login);
       const logoutDate = logout
         ? parseTimeToDate(logout)
-        : parseTimeToDate(new Date().toLocaleTimeString()); // 👈 fixed here too
-
+        : parseTimeToDate(new Date().toLocaleTimeString());
       let diff = (logoutDate.getTime() - loginDate.getTime()) / 1000;
       if (diff < 0) diff += 86400;
-
       totalSec += diff;
     } catch (err) {
       console.error("Time parse error", err);
@@ -77,8 +73,23 @@ const calculateTotalHours = (
   const hrs = Math.floor(totalSec / 3600);
   const mins = Math.floor((totalSec % 3600) / 60);
   const secs = Math.floor(totalSec % 60);
-
   return `${hrs}h ${mins}m ${secs}s`;
+};
+
+const getAddressFromCoords = async (
+  lat: number,
+  lon: number
+): Promise<string> => {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+    );
+    const data = await response.json();
+    return data.display_name || "Unknown Location";
+  } catch (error) {
+    console.error("Reverse geocoding failed:", error);
+    return "Unknown Location";
+  }
 };
 
 export default function EmployeeSelfProfile() {
@@ -109,51 +120,66 @@ export default function EmployeeSelfProfile() {
     const assignment = assignmentSnap.data();
     const { lat, lng, workFromHome } = assignment;
 
-    if (!workFromHome) {
-      const loc = await new Promise<string>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const { latitude, longitude } = pos.coords;
-            resolve(
-              `Lat: ${latitude.toFixed(6)}, Lon: ${longitude.toFixed(6)}`
-            );
-          },
-          () => resolve("Unknown")
-        );
-      });
+    let currentLat = 0;
+    let currentLng = 0;
+    let address = "Unknown";
 
-      const match = loc.match(/Lat: ([\d.]+), Lon: ([\d.]+)/);
-      if (!match) {
+    if (!workFromHome) {
+      const loc = await new Promise<{ lat: number; lng: number } | null>(
+        (resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const { latitude, longitude } = pos.coords;
+              resolve({ lat: latitude, lng: longitude });
+            },
+            () => resolve(null)
+          );
+        }
+      );
+
+      if (!loc) {
         alert("❌ Could not determine your location.");
         return;
       }
-      const [currentLat, currentLng] = [
-        parseFloat(match[1]),
-        parseFloat(match[2]),
-      ];
-      const distance = haversineDistance(currentLat, currentLng, lat, lng);
 
-      if (distance > 0.1) {
-        alert(
-          `❌ Too far from assigned location. Distance: ${(
-            distance * 1000
-          ).toFixed(0)} meters`
-        );
+      currentLat = loc.lat;
+      currentLng = loc.lng;
+
+      const distance = haversineDistance(currentLat, currentLng, lat, lng);
+      if (distance > 0.05) {
+        alert(`❌ Too far from assigned location.
+Assigned: (${lat.toFixed(6)}, ${lng.toFixed(6)})
+You: (${currentLat.toFixed(6)}, ${currentLng.toFixed(6)})
+Address: ${address}
+Distance: ${(distance * 1000).toFixed(2)} meters`);
+
         await signOut(auth);
         window.location.href = "/login";
         return;
       }
+
+      address = await getAddressFromCoords(currentLat, currentLng);
     }
 
     const attendanceRef = doc(db, "attendance", `${userId}_${date}`);
     const snap = await getDoc(attendanceRef);
+
+    const newSession = {
+      login: time,
+      logout: "",
+      loginLocation: {
+        lat: currentLat,
+        lng: currentLng,
+        address,
+      },
+    };
 
     if (!snap.exists()) {
       await setDoc(attendanceRef, {
         userId,
         name,
         date,
-        sessions: [{ login: time, logout: "" }],
+        sessions: [newSession],
         totalHours: "",
       });
       setLoginTime(time);
@@ -162,8 +188,10 @@ export default function EmployeeSelfProfile() {
       const sessions = data.sessions || [];
       if (sessions.length > 0) setLoginTime(sessions[0].login);
       setTotalHours(data.totalHours || "");
+
       if (!sessions[sessions.length - 1]?.logout) return;
-      sessions.push({ login: time, logout: "" });
+
+      sessions.push(newSession);
       await updateDoc(attendanceRef, { sessions });
     }
   };
@@ -171,24 +199,76 @@ export default function EmployeeSelfProfile() {
   const handleLogoutUpdate = async (): Promise<string | null> => {
     const user = auth.currentUser;
     if (!user) return null;
+
     const date = getCurrentDate();
     const time = getCurrentTime();
     const attendanceRef = doc(db, "attendance", `${user.uid}_${date}`);
     const snap = await getDoc(attendanceRef);
     if (!snap.exists()) return null;
 
-    const data = snap.data();
-    const sessions = [...data.sessions];
+    const assignmentSnap = await getDoc(
+      doc(db, "geoAssignments", user.uid, "dates", date)
+    );
+    const assignment = assignmentSnap.exists() ? assignmentSnap.data() : {};
+    const { lat, lng, workFromHome } = assignment;
 
-    if (sessions.length > 0 && !sessions[sessions.length - 1].logout) {
-      sessions[sessions.length - 1].logout = time;
-      const total = calculateTotalHours(sessions);
-      await updateDoc(attendanceRef, { sessions, totalHours: total });
-      setTotalHours(total);
-      return total;
+    const sessions = [...snap.data().sessions];
+    const lastSession = sessions[sessions.length - 1];
+
+    if (!lastSession || lastSession.logout)
+      return snap.data().totalHours || null;
+
+    let logoutLat = 0,
+      logoutLng = 0,
+      logoutAddress = "Unknown";
+
+    if (!workFromHome) {
+      const loc = await new Promise<{ lat: number; lng: number } | null>(
+        (resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            },
+            () => resolve(null)
+          );
+        }
+      );
+
+      if (!loc) {
+        alert("❌ Could not determine logout location.");
+        return null;
+      }
+
+      logoutLat = loc.lat;
+      logoutLng = loc.lng;
+      const distance = haversineDistance(logoutLat, logoutLng, lat, lng);
+      logoutAddress = await getAddressFromCoords(logoutLat, logoutLng);
+
+      if (distance > 0.05) {
+        alert(`❌ Too far from assigned location at logout.
+Assigned: (${lat.toFixed(6)}, ${lng.toFixed(6)})
+You: (${logoutLat.toFixed(6)}, ${logoutLng.toFixed(6)})
+Address: ${logoutAddress}
+Distance: ${(distance * 1000).toFixed(2)} meters`);
+
+        await signOut(auth);
+        window.location.href = "/login";
+        return null;
+      }
     }
 
-    return data.totalHours || null;
+    lastSession.logout = time;
+    lastSession.logoutLocation = {
+      lat: logoutLat,
+      lng: logoutLng,
+      address: logoutAddress,
+    };
+
+    const total = calculateTotalHours(sessions);
+    await updateDoc(attendanceRef, { sessions, totalHours: total });
+    setTotalHours(total);
+
+    return total;
   };
 
   const handleLogout = async () => {
@@ -209,14 +289,12 @@ export default function EmployeeSelfProfile() {
           setProfile(prof);
           await setupAttendance(user.uid, prof.name);
 
-          // Live total hours timer
           const date = getCurrentDate();
           const attendanceRef = doc(db, "attendance", `${user.uid}_${date}`);
           const snap = await getDoc(attendanceRef);
           if (snap.exists()) {
             const data = snap.data();
             const sessions = data.sessions || [];
-
             if (sessions.length > 0 && !sessions[sessions.length - 1].logout) {
               interval = setInterval(() => {
                 const liveTotal = calculateTotalHours(sessions, true);
@@ -228,7 +306,7 @@ export default function EmployeeSelfProfile() {
           }
         }
 
-        setLoading(false); // ✅ ensure this gets called
+        setLoading(false);
       }
     });
 
@@ -237,7 +315,6 @@ export default function EmployeeSelfProfile() {
       if (interval) clearInterval(interval);
     };
   }, []);
-  // re-run when user ID changes
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
