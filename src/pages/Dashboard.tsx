@@ -7,6 +7,8 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDocs,
+  collection,
 } from "firebase/firestore";
 
 // Utility functions
@@ -512,35 +514,52 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        setAuthUser(user);
+        console.log("🟢 Auth user detected:", user.email);
 
-        const empsSnap = await getDocs(collection(db, "employees"));
-        const matched = empsSnap.docs.find(
-          (doc) => doc.data().email === user.email
-        );
+        try {
+          const empsSnap = await getDocs(collection(db, "employees"));
+          const all = empsSnap.docs.map((d) => d.data());
+          console.log("📄 All employees fetched:", all);
 
-        if (matched) {
-          const userProfile = matched.data();
-          const docId = matched.id;
-          setProfile((prev: any) => ({ ...prev, uid: docId }));
+          const matched = empsSnap.docs.find(
+            (doc) =>
+              doc.data().email?.toLowerCase() === user.email?.toLowerCase()
+          );
 
-          const activeRef = doc(db, "activeUsers", docId);
-          const exists = await getDoc(activeRef);
-          if (!exists.exists()) {
-            await setDoc(activeRef, {
-              ...userProfile,
-              uid: docId,
-              login: new Date().toLocaleTimeString(),
-            });
+          if (!matched) {
+            console.warn("⚠️ No matching employee found for:", user.email);
+            return;
           }
 
-          // Fetch all other online users
+          const userProfile = matched.data();
+          const docId = matched.id;
+          const loginTime = new Date().toLocaleTimeString();
+
+          const updatedProfile = {
+            ...userProfile,
+            uid: docId,
+            login: loginTime,
+          };
+
+          setProfile((prev: any) => ({ ...updatedProfile }));
+
+          const activeRef = doc(db, "activeUsers", docId);
+
+          await setDoc(activeRef, updatedProfile, { merge: true });
+          console.log("✅ Active user updated:", updatedProfile);
+
           const onlineSnap = await getDocs(collection(db, "activeUsers"));
           const allActive = onlineSnap.docs
             .map((d) => d.data())
             .filter((emp) => emp.email !== user.email);
+
           setEmployees(allActive);
+          console.log("🟢 Other online users:", allActive);
+        } catch (err) {
+          console.error("❌ Failed to update activeUsers:", err);
         }
+      } else {
+        console.log("🔴 No auth user");
       }
     });
 
