@@ -4,12 +4,10 @@ import "react-calendar/dist/Calendar.css";
 import { auth, db } from "../lib/firebase";
 import {
   doc,
-  getDoc,
   setDoc,
   onSnapshot,
   serverTimestamp,
   collection,
-  getDocs,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -30,7 +28,7 @@ export default function AdvancedLeaveApplication() {
   const [leaveMap, setLeaveMap] = useState<{ [key: string]: LeaveRecord }>({});
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (authUser) => {
+    const unsub = onAuthStateChanged(auth, (authUser) => {
       if (authUser) {
         setUser(authUser);
         const ref = collection(db, "leaveManage");
@@ -71,84 +69,106 @@ export default function AdvancedLeaveApplication() {
     setReason("");
     setSelectedDate(null);
     setIsExtra(false);
-    alert("Leave request submitted");
+    alert("✅ Leave request submitted successfully!");
   };
 
   const tileClassName = ({ date, view }: { date: Date; view: string }) => {
     const dateStr = date.toISOString().split("T")[0];
     const leave = leaveMap[dateStr];
     if (view === "month" && leave) {
-      if (leave.status === "accepted") return "bg-green-300";
-      if (leave.status === "rejected") return "bg-red-300";
-      if (leave.status === "pending") return "bg-yellow-200";
+      if (leave.status === "accepted") return "bg-green-300 text-black";
+      if (leave.status === "rejected") return "bg-red-300 text-black";
+      if (leave.status === "pending") return "bg-yellow-200 text-black";
     }
     return null;
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h2 className="text-3xl font-bold text-center mb-4">
-        📆 Advanced Leave Application
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+      <h2 className="text-3xl font-bold text-center mb-6 text-blue-800">
+        📝 Leave Application Portal
       </h2>
 
-      <Calendar
-        onClickDay={(val) => setSelectedDate(val)}
-        value={selectedDate}
-        tileClassName={tileClassName}
-        className="mb-6 border rounded shadow"
-      />
-
-      {selectedDate && (
-        <div className="bg-white shadow p-4 rounded mb-6">
-          <p className="mb-2 font-semibold">
-            Selected Date: {selectedDate.toDateString()}
-          </p>
-
-          <label className="block mb-2 font-semibold">Leave Type:</label>
-          <select
-            className="w-full border px-3 py-2 mb-4 rounded"
-            value={leaveType}
-            onChange={(e) => setLeaveType(e.target.value)}
-          >
-            <option>Sick Leave</option>
-            <option>Casual Leave</option>
-            <option>Emergency Leave</option>
-            <option>Work From Home</option>
-          </select>
-
-          <label className="block mb-2 font-semibold">Reason:</label>
-          <textarea
-            className="w-full border px-3 py-2 mb-4 rounded"
-            rows={3}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          ></textarea>
-
-          <label className="inline-flex items-center mb-4">
-            <input
-              type="checkbox"
-              className="mr-2"
-              checked={isExtra}
-              onChange={() => setIsExtra(!isExtra)}
-            />
-            Mark as Extra Leave
-          </label>
-
-          <button
-            className="block w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-            onClick={onSubmit}
-          >
-            Submit Leave
-          </button>
+      <div className="grid md:grid-cols-2 gap-6 mb-6">
+        <div>
+          <h3 className="font-semibold mb-2 text-lg">📅 Select Leave Date</h3>
+          <Calendar
+            onClickDay={(val) => setSelectedDate(val)}
+            value={selectedDate}
+            tileClassName={tileClassName}
+            className="rounded-md border shadow"
+          />
+          <div className="mt-2 text-sm text-gray-600 space-y-1">
+            <p>
+              <span className="inline-block w-3 h-3 bg-yellow-300 mr-2" />{" "}
+              Pending
+            </p>
+            <p>
+              <span className="inline-block w-3 h-3 bg-green-300 mr-2" />{" "}
+              Approved
+            </p>
+            <p>
+              <span className="inline-block w-3 h-3 bg-red-300 mr-2" /> Rejected
+            </p>
+          </div>
         </div>
-      )}
 
-      <div className="bg-white shadow p-4 rounded">
-        <h3 className="text-xl font-semibold mb-4 text-center">
+        {selectedDate && (
+          <div className="bg-white border rounded shadow p-4">
+            <p className="text-base font-semibold mb-4 text-gray-800">
+              Selected Date:{" "}
+              <span className="text-blue-700">
+                {selectedDate.toDateString()}
+              </span>
+            </p>
+
+            <label className="block font-medium mb-1">Leave Type:</label>
+            <select
+              className="w-full border px-3 py-2 mb-4 rounded"
+              value={leaveType}
+              onChange={(e) => setLeaveType(e.target.value)}
+            >
+              <option>Sick Leave</option>
+              <option>Casual Leave</option>
+              <option>Emergency Leave</option>
+              <option>Work From Home</option>
+            </select>
+
+            <label className="block font-medium mb-1">Reason:</label>
+            <textarea
+              className="w-full border px-3 py-2 mb-4 rounded"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Describe your reason for leave..."
+            ></textarea>
+
+            <label className="inline-flex items-center mb-4 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="mr-2"
+                checked={isExtra}
+                onChange={() => setIsExtra(!isExtra)}
+              />
+              Mark as Extra Leave
+            </label>
+
+            <button
+              className="block w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"
+              onClick={onSubmit}
+            >
+              Submit Leave Request
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border shadow rounded p-4 overflow-auto">
+        <h3 className="text-xl font-semibold mb-4 text-center text-gray-800">
           📊 Leave Summary
         </h3>
-        <table className="w-full table-auto text-left">
-          <thead className="bg-gray-100">
+        <table className="w-full text-sm table-auto border">
+          <thead className="bg-gray-100 text-gray-700">
             <tr>
               <th className="border px-3 py-2">Date</th>
               <th className="border px-3 py-2">Type</th>
@@ -161,13 +181,21 @@ export default function AdvancedLeaveApplication() {
             {Object.values(leaveMap)
               .sort((a, b) => (a.date < b.date ? 1 : -1))
               .map((leave, i) => (
-                <tr key={i} className="text-sm">
+                <tr key={i} className="hover:bg-gray-50">
                   <td className="border px-3 py-2">{leave.date}</td>
                   <td className="border px-3 py-2">{leave.leaveType}</td>
-                  <td className="border px-3 py-2 capitalize">
+                  <td
+                    className={`border px-3 py-2 capitalize ${
+                      leave.status === "accepted"
+                        ? "text-green-600"
+                        : leave.status === "rejected"
+                        ? "text-red-600"
+                        : "text-yellow-600"
+                    }`}
+                  >
                     {leave.status}
                   </td>
-                  <td className="border px-3 py-2">
+                  <td className="border px-3 py-2 text-center">
                     {leave.isExtra ? "✅" : "❌"}
                   </td>
                   <td className="border px-3 py-2">{leave.reason}</td>

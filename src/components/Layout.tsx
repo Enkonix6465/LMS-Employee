@@ -63,12 +63,14 @@ function Layout() {
               path: "/AttendanceHistory",
               icon: Calendar,
               label: "Attendance History",
-            }, // Added Attendance History
+            },
+            // Added Attendance Summary
             {
-              path: "/CalendarAttendancePage",
+              path: "/EmployeeLeaveHistory",
               icon: Calendar,
-              label: "Attendance Calendar",
-            }, // Added Attendance Calendar
+              label: "Leave History",
+            }, // Added Employee Leave History
+            // Added Attendance Calendar
             {
               path: "/LeaveApplicationPage ",
               icon: Calendar,

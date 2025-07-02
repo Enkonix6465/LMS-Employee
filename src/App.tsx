@@ -16,6 +16,8 @@ import CalendarAttendancePage from "./pages/CalendarAttendancePage";
 import LeaveApplicationPage from "./pages/LeaveApplicationPage";
 import ChatMeetingPage from "./pages/ChatMeetingPage";
 import ProjectTeam from "./pages/ProjectTeam";
+import AttendanceSummaryPage from "./pages/AttendanceSummaryPage";
+import EmployeeLeaveHistory from "./pages/EmployeeLeaveHistory";
 function App() {
   const { user, loading } = useAuthStore();
   const { theme } = useThemeStore();
@@ -54,6 +56,14 @@ function App() {
           <Route index element={<Dashboard />} />
 
           <Route path="AttendanceHistory" element={<AttendanceHistory />} />
+          <Route
+            path="AttendanceSummaryPage"
+            element={<AttendanceSummaryPage />}
+          />
+          <Route
+            path="EmployeeLeaveHistory"
+            element={<EmployeeLeaveHistory />}
+          />
           <Route
             path="CalendarAttendancePage"
             element={<CalendarAttendancePage />}
