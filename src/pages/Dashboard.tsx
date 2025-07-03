@@ -151,18 +151,28 @@ export default function EmployeeSelfProfile() {
       // Always get current location
       const loc = await new Promise<{ lat: number; lng: number } | null>(
         (resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const { latitude, longitude } = pos.coords;
+          let watchId: number;
+
+          const success = (pos: GeolocationPosition) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            console.log(`📍 Accuracy: ${accuracy.toFixed(2)} meters`);
+
+            if (accuracy <= 200) {
+              navigator.geolocation.clearWatch(watchId);
               resolve({ lat: latitude, lng: longitude });
-            },
-            () => resolve(null),
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 30000,
             }
-          );
+          };
+
+          const error = () => {
+            navigator.geolocation.clearWatch(watchId);
+            resolve(null);
+          };
+
+          watchId = navigator.geolocation.watchPosition(success, error, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          });
         }
       );
 
@@ -371,22 +381,27 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
 
       const loc = await new Promise<{ lat: number; lng: number } | null>(
         (resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) =>
-              resolve({
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-              }),
-            (error) => {
-              console.error("Logout geolocation error:", error);
-              resolve(null);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 30000,
+          let watchId: number;
+
+          const success = (pos: GeolocationPosition) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            console.log(`📍 Logout Accuracy: ${accuracy.toFixed(2)} meters`);
+            if (accuracy <= 200) {
+              navigator.geolocation.clearWatch(watchId);
+              resolve({ lat: latitude, lng: longitude });
             }
-          );
+          };
+
+          const error = () => {
+            navigator.geolocation.clearWatch(watchId);
+            resolve(null);
+          };
+
+          watchId = navigator.geolocation.watchPosition(success, error, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          });
         }
       );
 

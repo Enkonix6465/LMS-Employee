@@ -64,6 +64,11 @@ function Layout() {
               icon: Calendar,
               label: "Attendance History",
             },
+            {
+              path: "/ViewPayslip",
+              icon: Calendar,
+              label: "View Payslip",
+            },
             // Added Attendance Summary
             {
               path: "/EmployeeLeaveHistory",

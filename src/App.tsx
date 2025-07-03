@@ -18,6 +18,7 @@ import ChatMeetingPage from "./pages/ChatMeetingPage";
 import ProjectTeam from "./pages/ProjectTeam";
 import AttendanceSummaryPage from "./pages/AttendanceSummaryPage";
 import EmployeeLeaveHistory from "./pages/EmployeeLeaveHistory";
+import ViewPayslip from "./pages/ViewPayslip";
 function App() {
   const { user, loading } = useAuthStore();
   const { theme } = useThemeStore();
@@ -60,6 +61,7 @@ function App() {
             path="AttendanceSummaryPage"
             element={<AttendanceSummaryPage />}
           />
+          <Route path="ViewPayslip" element={<ViewPayslip />} />
           <Route
             path="EmployeeLeaveHistory"
             element={<EmployeeLeaveHistory />}
