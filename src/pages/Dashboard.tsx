@@ -141,51 +141,73 @@ export default function EmployeeSelfProfile() {
     const assignment = assignmentSnap.data();
     const { lat, lng, workFromHome } = assignment;
 
+    // ✅ Declare once only
     let currentLat = 0;
     let currentLng = 0;
     let address = "Unknown";
-
     const alreadyChecked = sessionStorage.getItem("locationChecked");
 
     if (!workFromHome) {
-      // Always get current location
-      const loc = await new Promise<{ lat: number; lng: number } | null>(
-        (resolve) => {
-          let watchId: number;
-
-          const success = (pos: GeolocationPosition) => {
-            const { latitude, longitude, accuracy } = pos.coords;
-            console.log(`📍 Accuracy: ${accuracy.toFixed(2)} meters`);
-
-            if (accuracy <= 200) {
-              navigator.geolocation.clearWatch(watchId);
-              resolve({ lat: latitude, lng: longitude });
-            }
-          };
-
-          const error = () => {
-            navigator.geolocation.clearWatch(watchId);
-            resolve(null);
-          };
-
-          watchId = navigator.geolocation.watchPosition(success, error, {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          });
+      const getPublicIP = async (): Promise<string | null> => {
+        try {
+          const res = await fetch("https://api64.ipify.org?format=json");
+          if (!res.ok) throw new Error("Failed to fetch IP");
+          const data = await res.json();
+          return data.ip;
+        } catch (error) {
+          console.error("Failed to fetch public IP:", error);
+          return null;
         }
-      );
+      };
 
-      if (!loc) {
-        alert("❌ Could not determine your location.");
+      const userIP = await getPublicIP();
+      console.log("🌐 Public IP:", userIP);
+
+      const officeRef = doc(db, "officeNetwork", "allowedIPs");
+      const officeSnap = await getDoc(officeRef);
+      const allowedIPs = officeSnap.exists() ? officeSnap.data().ips || [] : [];
+
+      if (!userIP || !allowedIPs.includes(userIP)) {
+        alert(
+          `❌ You are not connected to an allowed office Wi-Fi.\nYour IP: ${userIP}`
+        );
+        await signOut(auth);
+        window.location.href = "/login";
         return;
       }
 
-      currentLat = loc.lat;
-      currentLng = loc.lng;
-      address = await getAddressFromCoords(currentLat, currentLng);
+      const permissionGranted = await checkLocationPermission();
+      if (permissionGranted) {
+        const loc = await new Promise<{ lat: number; lng: number } | null>(
+          (resolve) => {
+            let watchId: number;
+            const success = (pos: GeolocationPosition) => {
+              const { latitude, longitude, accuracy } = pos.coords;
+              console.log(`📍 Login Accuracy: ${accuracy.toFixed(2)} meters`);
+              if (accuracy <= 200) {
+                navigator.geolocation.clearWatch(watchId);
+                resolve({ lat: latitude, lng: longitude });
+              }
+            };
+            const error = () => {
+              navigator.geolocation.clearWatch(watchId);
+              resolve(null);
+            };
+            watchId = navigator.geolocation.watchPosition(success, error, {
+              enableHighAccuracy: true,
+              timeout: 35000,
+              maximumAge: 0,
+            });
+          }
+        );
 
-      // Check location only once per day
+        if (loc) {
+          currentLat = loc.lat;
+          currentLng = loc.lng;
+          address = await getAddressFromCoords(currentLat, currentLng);
+        }
+      }
+
       if (alreadyChecked !== date) {
         const distance = haversineDistance(currentLat, currentLng, lat, lng);
         if (distance > 0.05) {
@@ -200,6 +222,42 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
         }
 
         sessionStorage.setItem("locationChecked", date);
+      }
+    }
+
+    if (workFromHome) {
+      const permissionGranted = await checkLocationPermission();
+      if (permissionGranted) {
+        const loc = await new Promise<{ lat: number; lng: number } | null>(
+          (resolve) => {
+            let watchId: number;
+            const success = (pos: GeolocationPosition) => {
+              const { latitude, longitude, accuracy } = pos.coords;
+              console.log(
+                `📍 WFH Login Accuracy: ${accuracy.toFixed(2)} meters`
+              );
+              if (accuracy <= 300) {
+                navigator.geolocation.clearWatch(watchId);
+                resolve({ lat: latitude, lng: longitude });
+              }
+            };
+            const error = () => {
+              navigator.geolocation.clearWatch(watchId);
+              resolve(null);
+            };
+            watchId = navigator.geolocation.watchPosition(success, error, {
+              enableHighAccuracy: true,
+              timeout: 35000,
+              maximumAge: 0,
+            });
+          }
+        );
+
+        if (loc) {
+          currentLat = loc.lat;
+          currentLng = loc.lng;
+          address = await getAddressFromCoords(currentLat, currentLng);
+        }
       }
     }
 
@@ -237,6 +295,7 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
       await updateDoc(attendanceRef, { sessions });
     }
   };
+
   const recalculateTotalHours = (
     dailyHours: Record<string, string>
   ): string => {
@@ -329,14 +388,29 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     }
 
     // carry forward only at month-end
+    // ✅ Handle carry forward at start of the month
     const todayDate = new Date(date);
-    const lastDate = new Date(
-      todayDate.getFullYear(),
-      todayDate.getMonth() + 1,
-      0
-    ).getDate();
-    if (todayDate.getDate() === lastDate && base.leavesTaken === 0) {
-      base.carryForwardLeaves = (base.carryForwardLeaves || 0) + 1;
+    if (todayDate.getDate() === 1) {
+      const prevMonth = new Date(
+        todayDate.getFullYear(),
+        todayDate.getMonth() - 1,
+        1
+      );
+      const prevMonthKey = prevMonth.toISOString().slice(0, 7);
+
+      const prevSummarySnap = await getDoc(
+        doc(db, "attendanceSummary", `${auth.currentUser!.uid}_${prevMonthKey}`)
+      );
+
+      if (prevSummarySnap.exists()) {
+        const prevData = prevSummarySnap.data();
+        if ((prevData.leavesTaken || 0) === 0) {
+          base.carryForwardLeaves = (base.carryForwardLeaves || 0) + 1;
+        }
+      } else {
+        // No previous data, first month → start with 1
+        base.carryForwardLeaves = 1;
+      }
     }
 
     base.totalmonthHours = recalculateTotalHours(base.dailyHours);
@@ -365,55 +439,43 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     if (!lastSession || lastSession.logout)
       return snap.data().totalHours || null;
 
-    let logoutLat = 0,
-      logoutLng = 0,
-      logoutAddress = "Unknown";
+    // Declare once here
+    let logoutLat = 0;
+    let logoutLng = 0;
+    let logoutAddress = "Unknown";
 
-    if (!workFromHome) {
-      // ✅ Check permission before requesting location
-      const permissionGranted = await checkLocationPermission();
-      if (!permissionGranted) {
-        alert(
-          "❌ Location permission denied. Please allow access to continue."
-        );
-        return null;
-      }
-
+    const permissionGranted = await checkLocationPermission();
+    if (permissionGranted) {
       const loc = await new Promise<{ lat: number; lng: number } | null>(
         (resolve) => {
-          let watchId: number;
-
-          const success = (pos: GeolocationPosition) => {
-            const { latitude, longitude, accuracy } = pos.coords;
-            console.log(`📍 Logout Accuracy: ${accuracy.toFixed(2)} meters`);
-            if (accuracy <= 200) {
-              navigator.geolocation.clearWatch(watchId);
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const { latitude, longitude, accuracy } = pos.coords;
+              console.log(`📍 Logout Accuracy: ${accuracy.toFixed(2)} meters`);
               resolve({ lat: latitude, lng: longitude });
+            },
+            (err) => {
+              console.warn("📍 Logout location fetch failed:", err);
+              resolve(null);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 0,
             }
-          };
-
-          const error = () => {
-            navigator.geolocation.clearWatch(watchId);
-            resolve(null);
-          };
-
-          watchId = navigator.geolocation.watchPosition(success, error, {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          });
+          );
         }
       );
 
-      if (!loc) {
-        alert("❌ Could not determine logout location.");
-        return null;
+      if (loc) {
+        logoutLat = loc.lat;
+        logoutLng = loc.lng;
+        logoutAddress = await getAddressFromCoords(logoutLat, logoutLng);
       }
+    }
 
-      logoutLat = loc.lat;
-      logoutLng = loc.lng;
-      logoutAddress = await getAddressFromCoords(logoutLat, logoutLng); // ✅ FIXED
-
+    // Only validate distance if not WFH
+    if (!workFromHome && logoutLat && logoutLng) {
       const distance = haversineDistance(logoutLat, logoutLng, lat, lng);
       if (distance > 0.05) {
         alert(`❌ Too far from assigned location at logout.
@@ -580,6 +642,99 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
 
     return () => unsub();
   }, []);
+  // ✅ AUTO IP CHECKER THAT FORCES LOGOUT ON WIFI CHANGE
+  useEffect(() => {
+    let ipCheckInterval: NodeJS.Timeout;
+
+    const startPeriodicIPCheck = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const date = getCurrentDate();
+      const assignmentRef = doc(db, "geoAssignments", user.uid, "dates", date);
+      const assignmentSnap = await getDoc(assignmentRef);
+
+      if (!assignmentSnap.exists()) {
+        console.warn("No geo assignment found for IP check");
+        return;
+      }
+
+      const { workFromHome } = assignmentSnap.data();
+
+      // ❌ If WFH, skip periodic IP check
+      if (workFromHome) {
+        console.log("🛑 Skipping IP check — WFH user");
+        return;
+      }
+
+      const getPublicIP = async (): Promise<string | null> => {
+        try {
+          const res = await fetch("https://api64.ipify.org?format=json");
+          if (!res.ok) throw new Error("Failed to fetch IP");
+          const data = await res.json();
+          return data.ip;
+        } catch (error) {
+          console.error("Failed to fetch public IP:", error);
+          return null;
+        }
+      };
+
+      let retryCount = 0;
+
+      const checkIPAndLogoutIfChanged = async () => {
+        const userIP = await getPublicIP();
+        console.log("🌐 Periodic IP Check:", userIP);
+
+        const officeRef = doc(db, "officeNetwork", "allowedIPs");
+        const officeSnap = await getDoc(officeRef);
+        const allowedIPs = officeSnap.exists()
+          ? officeSnap.data().ips || []
+          : [];
+
+        if (!userIP || !allowedIPs.includes(userIP)) {
+          if (retryCount < 3) {
+            console.warn(
+              `⚠️ IP not allowed. Retrying in 10s... (${retryCount + 1}/3)`
+            );
+            retryCount++;
+            return;
+          }
+
+          alert(
+            `❌ You are not connected to an allowed office Wi-Fi.\nYour IP: ${userIP}\nYou will be logged out.`
+          );
+
+          if (auth.currentUser && profile?.uid) {
+            setLoggingOut(true);
+            await handleLogoutUpdate();
+            await updateMonthlySummary();
+            await signOut(auth);
+            setLoggingOut(false);
+            window.location.href = "/login";
+          }
+        } else {
+          retryCount = 0; // Reset if IP becomes valid
+        }
+      };
+
+      ipCheckInterval = setInterval(checkIPAndLogoutIfChanged, 600000);
+
+      const handleVisibility = () => {
+        if (document.visibilityState === "visible") {
+          checkIPAndLogoutIfChanged();
+        }
+      };
+      document.addEventListener("visibilitychange", handleVisibility);
+
+      // Cleanup
+      return () => {
+        clearInterval(ipCheckInterval);
+        document.removeEventListener("visibilitychange", handleVisibility);
+      };
+    };
+
+    startPeriodicIPCheck();
+  }, [auth, profile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setProfile({ ...profile, [e.target.name]: e.target.value });
