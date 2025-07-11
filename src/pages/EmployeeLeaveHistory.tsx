@@ -36,7 +36,6 @@ export default function EmployeeLeaveHistory() {
           }
         });
 
-        // Sort by most recent date
         records.sort((a, b) => (a.date < b.date ? 1 : -1));
         setHistory(records);
         setLoading(false);
@@ -51,17 +50,19 @@ export default function EmployeeLeaveHistory() {
     return <p className="p-6 text-center">Loading leave history...</p>;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 text-center">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto transition-all duration-500 ease-in-out">
+      <h2 className="text-3xl font-bold mb-6 text-center text-purple-700 dark:text-purple-300">
         📜 My Leave History
       </h2>
 
       {history.length === 0 ? (
-        <p className="text-center text-gray-500">No leave history found.</p>
+        <p className="text-center text-gray-600 dark:text-gray-400">
+          No leave history found.
+        </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-auto text-sm border border-gray-300">
-            <thead className="bg-purple-100">
+        <div className="overflow-x-auto rounded shadow-sm">
+          <table className="min-w-full table-auto text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-all duration-300">
+            <thead className="bg-purple-100 dark:bg-purple-900 text-gray-800 dark:text-white">
               <tr>
                 <th className="border px-4 py-2">Date</th>
                 <th className="border px-4 py-2">Leave Type</th>
@@ -76,15 +77,18 @@ export default function EmployeeLeaveHistory() {
             </thead>
             <tbody>
               {history.map((rec, i) => (
-                <tr key={i} className="text-center">
+                <tr
+                  key={i}
+                  className="text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+                >
                   <td className="border px-3 py-2">{rec.date}</td>
                   <td className="border px-3 py-2">{rec.leaveType}</td>
                   <td className="border px-3 py-2">{rec.reason}</td>
                   <td
-                    className={`border px-3 py-2 capitalize ${
+                    className={`border px-3 py-2 capitalize font-semibold ${
                       rec.status === "accepted"
-                        ? "text-green-600"
-                        : "text-red-600"
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-red-600 dark:text-red-400"
                     }`}
                   >
                     {rec.status}

@@ -24,7 +24,9 @@ body {
 }
 
 /* Form styles */
-input, select, textarea {
+input,
+select,
+textarea {
   @apply border-gray-300 focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white;
 }
 
@@ -144,4 +146,47 @@ input, select, textarea {
 
 .dark .recharts-tooltip-wrapper {
   @apply bg-gray-800 border-gray-700;
+}
+/* Dark mode support for react-calendar */
+.dark .react-calendar {
+  background-color: #1f2937; /* Tailwind dark:bg-gray-800 */
+  color: #e5e7eb; /* Tailwind text-gray-200 */
+  border: 1px solid #374151; /* Tailwind dark:border-gray-700 */
+}
+
+.dark .react-calendar__tile {
+  background-color: transparent;
+  color: #e5e7eb; /* text-gray-200 */
+}
+
+.dark .react-calendar__tile--now {
+  background-color: #2563eb; /* Tailwind blue-600 */
+  color: white;
+  border-radius: 4px;
+}
+
+.dark .react-calendar__tile--active {
+  background-color: #3b82f6; /* Tailwind blue-500 */
+  color: white;
+  border-radius: 4px;
+}
+
+.dark .react-calendar__tile--hover {
+  background-color: #374151; /* dark:hover:bg-gray-700 */
+}
+@layer utilities {
+  @keyframes fade-in {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
 }

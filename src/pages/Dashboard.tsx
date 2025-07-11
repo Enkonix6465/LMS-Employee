@@ -314,14 +314,15 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
   };
   const updateMonthlySummary = async () => {
     const date = getCurrentDate();
-    const monthKey = date.slice(0, 7);
+    const today = new Date(date);
+    const monthKey = date.slice(0, 7); // yyyy-mm
     const summaryRef = doc(
       db,
       "attendanceSummary",
       `${auth.currentUser!.uid}_${monthKey}`
     );
-    const summarySnap = await getDoc(summaryRef);
 
+    const summarySnap = await getDoc(summaryRef);
     const attSnap = await getDoc(
       doc(db, "attendance", `${auth.currentUser!.uid}_${date}`)
     );
@@ -357,58 +358,85 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
           carryForwardLeaves: 0,
           totalWorkingDays: 0,
           totalmonthHours: "0h 0m 0s",
-          dailyHours: {}, // new
-          countedDates: [], // new
+          dailyHours: {},
+          countedDates: [],
+          extraWorkLog: {},
         };
 
-    // avoid recounting same date
-    if (base.countedDates.includes(date)) {
-      // only update today's working time
-      base.dailyHours[date] = todayWorkingStr;
-      base.totalmonthHours = recalculateTotalHours(base.dailyHours);
-      await setDoc(summaryRef, base);
-      return;
+    // ⛔ Reclassification of old count if already present
+    const alreadyCounted = base.countedDates.includes(date);
+    if (alreadyCounted) {
+      const prev = base.dailyHours[date] || "0h 0m 0s";
+      const [ph, pm, ps] = prev
+        .split(/[hms ]+/)
+        .filter(Boolean)
+        .map(Number);
+      const prevHours = ph + pm / 60 + ps / 3600;
+
+      if (prevHours >= 9) base.presentDays -= 1;
+      else if (prevHours >= 4.5) base.halfDays -= 1;
+      else base.absentDays -= 1;
+
+      const totalUsedLeaves = base.leavesTaken + base.extraLeaves;
+      if (prevHours === 0 && totalUsedLeaves > 0) {
+        if (base.extraLeaves > 0) base.extraLeaves -= 1;
+        else base.leavesTaken -= 1;
+      }
+    } else {
+      base.countedDates.push(date);
     }
 
-    base.countedDates.push(date);
-    base.totalWorkingDays += 1;
+    // ✅ Reclassify based on new value
     base.dailyHours[date] = todayWorkingStr;
-
-    const hrs = secToday / 3600;
-    if (hrs >= 9) base.presentDays += 1;
-    else if (hrs >= 4.5) base.halfDays += 1;
+    if (H >= 9) base.presentDays += 1;
+    else if (H >= 4.5) base.halfDays += 1;
     else base.absentDays += 1;
 
-    const usedLeaves = base.leavesTaken + base.extraLeaves;
-    const allowed = 1 + (base.carryForwardLeaves || 0);
-
-    if (hrs === 0) {
+    // ✅ Leave logic
+    if (H === 0) {
+      const usedLeaves = base.leavesTaken + base.extraLeaves;
+      const allowed = 1 + (base.carryForwardLeaves || 0);
       if (usedLeaves < allowed) base.leavesTaken += 1;
       else base.extraLeaves += 1;
     }
 
-    // carry forward only at month-end
-    // ✅ Handle carry forward at start of the month
-    const todayDate = new Date(date);
-    if (todayDate.getDate() === 1) {
-      const prevMonth = new Date(
-        todayDate.getFullYear(),
-        todayDate.getMonth() - 1,
-        1
-      );
-      const prevMonthKey = prevMonth.toISOString().slice(0, 7);
+    // ✅ Extra work tracking
+    const extraSeconds = secToday - 32400;
+    if (extraSeconds > 0) {
+      base.extraWorkLog = base.extraWorkLog || {};
+      base.extraWorkLog[date] = `${Math.floor(
+        extraSeconds / 3600
+      )}h ${Math.floor((extraSeconds % 3600) / 60)}m ${Math.floor(
+        extraSeconds % 60
+      )}s`;
+    }
 
+    // ✅ Total working days (recalculate full month)
+    const year = today.getFullYear();
+    const month = today.getMonth(); // 0-indexed
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const workingDays = Array.from({ length: daysInMonth }, (_, i) => {
+      const d = new Date(year, month, i + 1);
+      return d.getDay() !== 0 && d.getDay() !== 6; // Skip Sunday(0), Saturday(6)
+    }).filter(Boolean).length;
+    base.totalWorkingDays = workingDays;
+
+    // ✅ Carry forward logic (only on 1st day)
+    if (today.getDate() === 1) {
+      const prevMonth = new Date(year, month - 1, 1);
+      const prevKey = prevMonth.toISOString().slice(0, 7);
       const prevSummarySnap = await getDoc(
-        doc(db, "attendanceSummary", `${auth.currentUser!.uid}_${prevMonthKey}`)
+        doc(db, "attendanceSummary", `${auth.currentUser!.uid}_${prevKey}`)
       );
-
       if (prevSummarySnap.exists()) {
         const prevData = prevSummarySnap.data();
         if ((prevData.leavesTaken || 0) === 0) {
-          base.carryForwardLeaves = (base.carryForwardLeaves || 0) + 1;
+          base.carryForwardLeaves = Math.min(
+            2,
+            (base.carryForwardLeaves || 0) + 1
+          );
         }
       } else {
-        // No previous data, first month → start with 1
         base.carryForwardLeaves = 1;
       }
     }
@@ -642,6 +670,119 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
 
     return () => unsub();
   }, []);
+  const [badge, setBadge] = useState("");
+
+  useEffect(() => {
+    const calculateBadge = async () => {
+      if (!auth.currentUser) return;
+      const userId = auth.currentUser.uid;
+      const date = getCurrentDate();
+      const monthKey = date.slice(0, 7);
+
+      const summaryRef = doc(db, "attendanceSummary", `${userId}_${monthKey}`);
+      const summarySnap = await getDoc(summaryRef);
+
+      if (!summarySnap.exists()) {
+        console.warn("⚠️ No summary found for badge");
+        setBadge("🥉 Bronze");
+        return;
+      }
+
+      const data = summarySnap.data();
+      const dailyHours = data.dailyHours || {};
+      const counted = data.countedDates || [];
+
+      let punctualDays = 0;
+      let fullDays = 0;
+
+      for (const day of counted) {
+        const attRef = doc(db, "attendance", `${userId}_${day}`);
+        const attSnap = await getDoc(attRef);
+
+        if (attSnap.exists()) {
+          const sessions = attSnap.data().sessions || [];
+          const firstLogin = sessions?.[0]?.login || "";
+          if (firstLogin) {
+            const loginTime = parseTimeToDate(firstLogin);
+            const loginHour = loginTime.getHours();
+            if (loginHour < 10) punctualDays += 1;
+          }
+        }
+
+        const hoursStr = dailyHours[day];
+        if (hoursStr) {
+          const [h, m, s] = hoursStr
+            .split(/[hms ]+/)
+            .filter(Boolean)
+            .map(Number);
+          const totalHrs = h + m / 60 + s / 3600;
+          if (totalHrs >= 9) fullDays += 1;
+        }
+      }
+
+      const total = counted.length || 1;
+      const punctualRate = (punctualDays / total) * 100;
+      const fullDayRate = (fullDays / total) * 100;
+
+      // 🧾 Log stats for debugging
+      console.log("✅ Badge Evaluation:");
+      console.log("Total Counted Days:", total);
+      console.log("Punctual Days (<10AM):", punctualDays);
+      console.log("Full Days (≥9h):", fullDays);
+      console.log("Punctuality %:", punctualRate.toFixed(2));
+      console.log("Full-Day %:", fullDayRate.toFixed(2));
+
+      if (punctualRate >= 80 && fullDayRate >= 80) {
+        setBadge("🥇 Gold");
+      } else if (punctualRate >= 60 && fullDayRate >= 60) {
+        setBadge("🥈 Silver");
+      } else {
+        setBadge("🥉 Bronze");
+      }
+    };
+
+    calculateBadge();
+  }, [auth.currentUser]);
+  const [specialAlerts, setSpecialAlerts] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchSpecialAlerts = async () => {
+      const db = getFirestore();
+      const employeesRef = collection(db, "employees");
+      const snapshot = await getDocs(employeesRef);
+
+      const today = new Date();
+      const currentMonthDay = `${String(today.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(today.getDate()).padStart(2, "0")}`;
+
+      const messages: string[] = [];
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const dob = data.dob; // format: YYYY-MM-DD
+        const joiningDate = data.joiningDate; // format: YYYY-MM-DD
+
+        if (dob?.slice(5) === currentMonthDay) {
+          messages.push(
+            `🌸 Wishing a Happy Birthday to ${data.name} – from Team Enkonix`
+          );
+        }
+
+        if (joiningDate?.slice(5) === currentMonthDay) {
+          messages.push(
+            `🎊 Celebrating ${data.name}'s Work Anniversary Today!`
+          );
+        }
+      });
+
+      setSpecialAlerts(messages);
+    };
+
+    fetchSpecialAlerts();
+  }, []);
+
   // ✅ AUTO IP CHECKER THAT FORCES LOGOUT ON WIFI CHANGE
   useEffect(() => {
     let ipCheckInterval: NodeJS.Timeout;
@@ -764,15 +905,28 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">
+    <div className="max-w-7xl mx-auto px-4 py-8 transition-colors duration-300">
+      {specialAlerts.length > 0 && (
+        <div className="relative overflow-hidden bg-gradient-to-r from-pink-100 to-purple-200 dark:from-gray-800 dark:to-gray-700 py-3 px-6 mb-6 rounded shadow transition-colors duration-300">
+          <div className="animate-scroll whitespace-nowrap text-lg font-semibold text-purple-800 dark:text-purple-200">
+            {specialAlerts.map((msg, idx) => (
+              <span key={idx} className="inline-block mr-12">
+                {msg} 🎉
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
           👋 Welcome, {profile.name}
         </h1>
         <button
           onClick={handleLogout}
           disabled={loggingOut}
-          className={`bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 flex items-center gap-2 ${
+          className={`flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-lg shadow-md hover:bg-red-700 transition-all duration-300 ${
             loggingOut ? "opacity-70 cursor-not-allowed" : ""
           }`}
         >
@@ -803,31 +957,55 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
       </div>
 
       {message && (
-        <div className="text-green-600 mb-4 font-semibold text-center">
+        <div className="text-green-600 dark:text-green-400 mb-4 font-semibold text-center">
           {message}
         </div>
       )}
 
+      {/* Main Content Area */}
       <div className="flex flex-col lg:flex-row gap-8">
-        {/* LEFT SECTION (Main Content) */}
-        <div className="flex-1">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 text-center text-lg">
-            <div className="bg-blue-50 p-4 rounded shadow">
-              <strong>Login Time:</strong>
-              <div>{loginTime || "N/A"}</div>
+        {/* Left Panel */}
+        <div className="flex-1 space-y-6">
+          {/* Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
+            <div className="bg-yellow-50 dark:bg-yellow-900 p-4 rounded-lg shadow-sm border dark:border-gray-700 transition">
+              <p className="font-medium text-gray-700 dark:text-yellow-100 mb-1">
+                Compliance Badge
+              </p>
+              <div className="text-2xl text-gray-800 dark:text-white">
+                {badge}
+              </div>
             </div>
-            <div className="bg-blue-50 p-4 rounded shadow">
-              <strong>Total Worked:</strong>
-              <div>{totalHours || "0h 0m"}</div>
+            <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg shadow-sm border dark:border-gray-700">
+              <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
+                Login Time
+              </p>
+              <div className="text-lg text-gray-800 dark:text-white">
+                {loginTime || "N/A"}
+              </div>
             </div>
-            <div className="bg-blue-50 p-4 rounded shadow">
-              <strong>Date:</strong>
-              <div>{getCurrentDate()}</div>
+            <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg shadow-sm border dark:border-gray-700">
+              <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
+                Total Worked
+              </p>
+              <div className="text-lg text-gray-800 dark:text-white">
+                {totalHours || "0h 0m"}
+              </div>
+            </div>
+            <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg shadow-sm border dark:border-gray-700">
+              <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
+                Date
+              </p>
+              <div className="text-lg text-gray-800 dark:text-white">
+                {getCurrentDate()}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-8">
-            <div className="md:w-1/3 flex flex-col items-center bg-white shadow rounded-xl p-6">
+          {/* Profile Section */}
+          <div className="flex flex-col md:flex-row gap-6">
+            {/* Profile Card */}
+            <div className="md:w-1/3 bg-white dark:bg-gray-800 shadow rounded-xl p-6 flex flex-col items-center text-center transition">
               {profile.photo && profile.photo !== "NA" ? (
                 <img
                   src={profile.photo}
@@ -835,14 +1013,19 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
                   className="w-32 h-32 rounded-full object-cover border"
                 />
               ) : (
-                <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-4xl">
+                <div className="w-32 h-32 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-4xl">
                   👤
                 </div>
               )}
-              <p className="mt-4 text-xl font-semibold">{profile.name}</p>
-              <p className="text-gray-500">{profile.title}</p>
+              <p className="mt-4 text-xl font-semibold text-gray-800 dark:text-white">
+                {profile.name}
+              </p>
+              <p className="text-gray-500 dark:text-gray-300">
+                {profile.title}
+              </p>
             </div>
 
+            {/* Editable Info */}
             {showMore && (
               <div className="md:w-2/3 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
@@ -865,7 +1048,7 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
                   { label: "Type", name: "type", editable: false },
                 ].map((field, idx) => (
                   <div key={idx}>
-                    <label className="block font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                       {field.label}
                     </label>
                     <input
@@ -875,9 +1058,11 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
                         field.editable && editable ? handleChange : undefined
                       }
                       disabled={!field.editable || !editable}
-                      className={`w-full p-2 border rounded ${
-                        !field.editable ? "bg-gray-100" : ""
-                      }`}
+                      className={`w-full p-2 border rounded-lg text-sm transition-colors duration-300 ${
+                        !field.editable
+                          ? "bg-gray-100 dark:bg-gray-700"
+                          : "bg-white dark:bg-gray-900"
+                      } text-gray-800 dark:text-white`}
                     />
                   </div>
                 ))}
@@ -885,34 +1070,35 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
             )}
           </div>
 
-          <div className="mt-6 text-center space-x-4">
+          {/* Profile Buttons */}
+          <div className="mt-4 text-center space-x-4">
             {!editable ? (
               <button
                 onClick={() => setEditable(true)}
-                className="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700"
+                className="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700 shadow transition"
               >
                 ✏️ Edit Profile
               </button>
             ) : (
               <button
                 onClick={handleUpdate}
-                className="bg-green-600 text-white px-6 py-2 rounded-full hover:bg-green-700"
+                className="bg-green-600 text-white px-6 py-2 rounded-full hover:bg-green-700 shadow transition"
               >
                 ✅ Save Changes
               </button>
             )}
             <button
               onClick={() => setShowMore((prev) => !prev)}
-              className="bg-gray-600 text-white px-6 py-2 rounded-full hover:bg-gray-700"
+              className="bg-gray-600 text-white px-6 py-2 rounded-full hover:bg-gray-700 shadow transition"
             >
               {showMore ? "🔽 Hide Details" : "🔼 View More"}
             </button>
           </div>
         </div>
 
-        {/* RIGHT SECTION (Online Users) */}
-        <div className="w-full lg:w-[300px] bg-white rounded-xl shadow p-4 overflow-y-auto max-h-[80vh]">
-          <h2 className="text-lg font-bold mb-4 text-center text-blue-700">
+        {/* Right Panel: Online Users */}
+        <div className="w-full lg:w-[300px] bg-white dark:bg-gray-800 rounded-xl shadow p-4 overflow-y-auto max-h-[80vh] transition-colors duration-300">
+          <h2 className="text-lg font-bold mb-4 text-center text-blue-700 dark:text-blue-300">
             🟢 Online Users
           </h2>
           <div className="space-y-3">
@@ -923,29 +1109,31 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
               .map((emp, i) => (
                 <div
                   key={i}
-                  className="bg-blue-100 p-2 rounded flex items-center gap-3"
+                  className="bg-blue-100 dark:bg-blue-950 p-3 rounded-lg flex items-center gap-3 transition"
                 >
                   <div className="relative">
-                    <div className="h-10 w-10 bg-blue-200 rounded-full flex items-center justify-center">
-                      <span className="text-blue-700 font-bold text-lg">
+                    <div className="h-10 w-10 bg-blue-200 dark:bg-blue-700 rounded-full flex items-center justify-center">
+                      <span className="text-blue-700 dark:text-white font-bold text-lg">
                         {emp.name?.[0] || "?"}
                       </span>
                     </div>
-                    <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full" />
+                    <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full" />
                   </div>
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-blue-800">
+                  <div className="text-left text-sm">
+                    <p className="font-semibold text-blue-800 dark:text-white">
                       {emp.name}
                     </p>
-                    <p className="text-xs text-gray-600">{emp.email}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      {emp.email}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       Login: {emp.login || "N/A"}
                     </p>
                   </div>
                 </div>
               ))}
             {employees.length === 0 && (
-              <p className="text-gray-500 text-sm text-center">
+              <p className="text-gray-500 dark:text-gray-300 text-sm text-center">
                 No other employees online
               </p>
             )}

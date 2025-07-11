@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
+import { Sun, Moon } from "lucide-react";
+import { useThemeStore } from "../store/themeStore";
+
 import {
   LayoutDashboard,
   Users,
   Calendar,
-  Briefcase,
-  CheckSquare,
   Settings,
   LogOut,
   Menu,
@@ -18,6 +19,7 @@ function Layout() {
   const { signOut, user } = useAuthStore();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { theme, setTheme } = useThemeStore();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -30,11 +32,11 @@ function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
+    <div className="flex h-screen bg-sky-50 dark:bg-gray-900 overflow-hidden transition-colors duration-300">
       {/* Mobile menu button */}
       <button
         onClick={toggleSidebar}
-        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-md bg-white dark:bg-gray-800 shadow-lg"
+        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-md bg-white dark:bg-gray-800 shadow-lg transition-all"
       >
         {isSidebarOpen ? (
           <X className="h-6 w-6 text-gray-600 dark:text-gray-300" />
@@ -47,18 +49,46 @@ function Layout() {
       <aside
         className={`${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } md:translate-x-0 fixed md:static inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-transform duration-300 ease-in-out`}
+        } md:translate-x-0 fixed md:static inset-y-0 left-0 z-40 w-64 bg-sky-100 dark:bg-gray-800 border-r border-blue-200 dark:border-gray-700 shadow-md md:shadow-none transition-transform duration-300 ease-in-out`}
       >
-        <div className="h-16 flex items-center px-6 border-b border-gray-200 dark:border-gray-700">
-          <h1 className="text-xl font-semibold text-blue-600 dark:text-blue-400">
-            ENKONIX
-          </h1>
+        <div className="h-20 px-4 py-3 flex items-center justify-between border-b border-blue-200 dark:border-gray-700 bg-sky-200 dark:bg-gray-900">
+          <a
+            href="https://enkonix.in"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 hover:opacity-90 transition-opacity"
+          >
+            <img
+              src="/logo.jpg"
+              alt="Company Logo"
+              className="h-10 w-10 rounded shadow-sm object-contain bg-white p-1"
+            />
+            <div>
+              <h1 className="text-lg font-bold text-blue-700 dark:text-blue-400">
+                ENKONIX
+              </h1>
+              <p className="text-xs font-medium text-blue-800 dark:text-blue-300">
+                Software Services Pvt Ltd
+              </p>
+            </div>
+          </a>
+
+          <button
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            className="p-2 rounded hover:bg-blue-300/30 dark:hover:bg-gray-700 transition-colors duration-300"
+            title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
+          >
+            {theme === "light" ? (
+              <Moon className="h-5 w-5 text-gray-800 dark:text-gray-200" />
+            ) : (
+              <Sun className="h-5 w-5 text-yellow-400" />
+            )}
+          </button>
         </div>
 
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)] scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-gray-600 transition-all duration-300">
           {[
             { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-
             {
               path: "/AttendanceHistory",
               icon: Calendar,
@@ -69,40 +99,33 @@ function Layout() {
               icon: Calendar,
               label: "View Payslip",
             },
-            // Added Attendance Summary
             {
               path: "/EmployeeLeaveHistory",
               icon: Calendar,
               label: "Leave History",
-            }, // Added Employee Leave History
-            // Added Attendance Calendar
+            },
             {
               path: "/LeaveApplicationPage ",
               icon: Calendar,
               label: "Leave Application",
-            }, // Added Leave Application
-            //
-            //
+            },
             { path: "/users", icon: Users, label: "Users" },
-            //{ path: "/projects", icon: Briefcase, label: "Projects" },
-            //{ path: "/tasks", icon: CheckSquare, label: "Tasks" },
             { path: "/calendar", icon: Calendar, label: "Calendar" },
-            //{ path: "/ProjectTeam", icon: Users, label: "Project Team" },
             {
               path: "/ChatMeetingPage",
               icon: MessageSquareText,
               label: "Chat & Meeting Room",
             },
-            { path: "/settings", icon: Settings, label: "Settings" }, // Added Project Team
+            { path: "/settings", icon: Settings, label: "Settings" },
           ].map(({ path, icon: Icon, label }) => (
             <Link
               key={path}
               to={path}
               onClick={closeSidebar}
-              className={`flex items-center px-4 py-2 text-gray-700 dark:text-gray-300 rounded-lg ${
+              className={`flex items-center px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
                 isActive(path)
-                  ? "bg-gray-100 dark:bg-gray-700"
-                  : "hover:bg-gray-50 dark:hover:bg-gray-700"
+                  ? "bg-blue-200 text-blue-900 dark:bg-blue-900 dark:text-blue-300"
+                  : "text-gray-700 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-gray-700"
               }`}
             >
               <Icon className="h-5 w-5 mr-3" />
@@ -111,12 +134,12 @@ function Layout() {
           ))}
         </nav>
 
-        <div className="absolute bottom-0 w-64 p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="absolute bottom-0 w-full p-4 border-t border-blue-200 dark:border-gray-700 bg-sky-100 dark:bg-gray-900">
           <div className="flex items-center">
             <img
               src={`https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`}
               alt="Avatar"
-              className="h-8 w-8 rounded-full"
+              className="h-8 w-8 rounded-full shadow-sm"
             />
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -126,7 +149,7 @@ function Layout() {
           </div>
           <button
             onClick={() => signOut()}
-            className="mt-4 flex items-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+            className="mt-4 flex items-center text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
           >
             <LogOut className="h-5 w-5 mr-2" />
             Sign out
@@ -137,13 +160,13 @@ function Layout() {
       {/* Overlay for mobile */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-40 z-30 md:hidden transition-opacity duration-300"
           onClick={closeSidebar}
         />
       )}
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-4 md:p-6">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-sky-50 dark:bg-gray-900 transition-all duration-300 ease-in-out">
         <Outlet />
       </main>
     </div>

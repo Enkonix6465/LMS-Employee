@@ -37,17 +37,31 @@ export default function AttendanceHistory() {
       if (user) {
         setUserId(user.uid);
         try {
-          // Fetch attendance logs
           const q = query(
             collection(db, "attendance"),
             where("userId", "==", user.uid)
           );
           const snapshot = await getDocs(q);
-          const allData = snapshot.docs.map((doc) => doc.data());
+          let allData = snapshot.docs.map((doc) => doc.data());
+
+          const today = new Date().toISOString().slice(0, 10);
+          const todayDocId = `${user.uid}_${today}`;
+          const todayDocRef = doc(db, "attendance", todayDocId);
+          const todayDocSnap = await getDoc(todayDocRef);
+
+          if (todayDocSnap.exists()) {
+            const todayData = todayDocSnap.data();
+            const alreadyExists = allData.some(
+              (item) => item.date === todayData.date
+            );
+            if (!alreadyExists) {
+              allData.push(todayData);
+            }
+          }
+
           const sorted = allData.sort((a, b) => a.date.localeCompare(b.date));
           setAttendanceList(sorted);
 
-          // Fetch summary for current month
           const currentMonth = new Date().toISOString().slice(0, 7);
           const summaryRef = doc(
             db,
@@ -58,9 +72,48 @@ export default function AttendanceHistory() {
 
           if (summarySnap.exists()) {
             const summaryData = summarySnap.data();
-            setSummary(summaryData);
+            const countedDates = summaryData.countedDates || [];
+            setSummary({
+              ...summaryData,
+              workingDaysTillToday: countedDates.length,
+            });
           } else {
-            setError("Attendance summary not found for this month.");
+            const empRef = doc(db, "employees", user.uid);
+            const empSnap = await getDoc(empRef);
+
+            if (empSnap.exists()) {
+              const empData = empSnap.data();
+              setSummary({
+                name: empData.name || "N/A",
+                email: empData.email || "N/A",
+                department: empData.department || "N/A",
+                month: currentMonth,
+                presentDays: 0,
+                halfDays: 0,
+                absentDays: 0,
+                leavesTaken: 0,
+                extraLeaves: 0,
+                carryForwardLeaves: 0,
+                totalWorkingDays: 0,
+                workingDaysTillToday: 0,
+                totalmonthHours: "0h 0m",
+              });
+            } else {
+              setSummary({
+                name: "N/A",
+                email: "N/A",
+                department: "N/A",
+                month: currentMonth,
+                presentDays: 0,
+                halfDays: 0,
+                absentDays: 0,
+                leavesTaken: 0,
+                extraLeaves: 0,
+                carryForwardLeaves: 0,
+                totalWorkingDays: 0,
+                totalmonthHours: "0h 0m",
+              });
+            }
           }
         } catch (err) {
           console.error(err);
@@ -77,20 +130,24 @@ export default function AttendanceHistory() {
     return () => unsubscribe();
   }, []);
 
-  if (loading) return <div className="text-center py-20">Loading...</div>;
+  if (loading)
+    return <div className="text-center py-20 animate-pulse">Loading...</div>;
   if (error)
     return <div className="text-center text-red-600 py-20">{error}</div>;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold text-center mb-4">
+    <div className="max-w-6xl mx-auto px-4 py-10 transition-all duration-300">
+      <h1 className="text-3xl font-bold text-center mb-2 dark:text-white transition-colors">
         📅 Attendance History
       </h1>
-      <p className="text-center text-gray-600 mb-6">👤 {summary?.name}</p>
+      <p className="text-center text-gray-600 dark:text-gray-300 mb-6">
+        👤 {summary?.name}
+      </p>
 
-      <div className="overflow-x-auto">
-        <table className="w-full table-auto text-sm border mb-10 min-w-[800px]">
-          <thead className="bg-gray-100 text-gray-800 font-semibold">
+      {/* Attendance Table */}
+      <div className="overflow-x-auto mb-10">
+        <table className="w-full table-auto text-sm border rounded-md overflow-hidden min-w-[800px]">
+          <thead className="bg-sky-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-semibold">
             <tr>
               <th className="border px-3 py-2">#</th>
               <th className="border px-3 py-2">Date</th>
@@ -106,12 +163,17 @@ export default function AttendanceHistory() {
               const isUnderworked = h < 9;
 
               return (
-                <tr key={index} className="bg-white hover:bg-gray-50">
+                <tr
+                  key={index}
+                  className="bg-white dark:bg-gray-800 hover:bg-sky-50 dark:hover:bg-gray-700 transition"
+                >
                   <td className="border px-3 py-2">{index + 1}</td>
                   <td className="border px-3 py-2 font-medium">{att.date}</td>
                   <td
                     className={`border px-3 py-2 font-semibold ${
-                      isUnderworked ? "text-red-600" : "text-green-600"
+                      isUnderworked
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-green-600 dark:text-green-400"
                     }`}
                   >
                     {att.totalHours || "0h 0m"}
@@ -119,28 +181,31 @@ export default function AttendanceHistory() {
                   <td className="border px-3 py-2 text-left">
                     <ul className="space-y-3">
                       {att.sessions.map((s: any, i: number) => (
-                        <li key={i} className="pb-2 border-b last:border-b-0">
+                        <li
+                          key={i}
+                          className="pb-2 border-b last:border-b-0 border-dashed"
+                        >
                           <div className="text-sm">
-                            <span className="text-green-600 font-semibold">
+                            <span className="text-green-600 dark:text-green-400 font-semibold">
                               🟢 Login:
                             </span>{" "}
                             {s.login || "—"}
                           </div>
                           {s.loginLocation && (
-                            <div className="ml-4 text-xs text-gray-600">
+                            <div className="ml-4 text-xs text-gray-600 dark:text-gray-400">
                               📍 {s.loginLocation.address}
                               <br />({s.loginLocation.lat.toFixed(5)},{" "}
                               {s.loginLocation.lng.toFixed(5)})
                             </div>
                           )}
                           <div className="text-sm mt-1">
-                            <span className="text-red-600 font-semibold">
+                            <span className="text-red-600 dark:text-red-400 font-semibold">
                               🔴 Logout:
                             </span>{" "}
                             {s.logout || "⏳"}
                           </div>
                           {s.logout && s.logoutLocation && (
-                            <div className="ml-4 text-xs text-gray-600">
+                            <div className="ml-4 text-xs text-gray-600 dark:text-gray-400">
                               📍 {s.logoutLocation.address}
                               <br />({s.logoutLocation.lat.toFixed(5)},{" "}
                               {s.logoutLocation.lng.toFixed(5)})
@@ -157,57 +222,76 @@ export default function AttendanceHistory() {
         </table>
       </div>
 
-      {/* Monthly Summary Table */}
-      <div className="p-6">
-        <h2 className="text-2xl font-bold text-center mb-4 text-green-700">
+      {/* Summary Table */}
+      <div className="p-6 bg-white dark:bg-gray-800 rounded shadow-md transition">
+        <h2 className="text-2xl font-bold text-center mb-4 text-green-700 dark:text-green-400">
           📋 Monthly Attendance Summary
         </h2>
-
-        <table className="w-full table-auto border text-sm text-center shadow">
-          <thead className="bg-green-100 text-black font-bold">
-            <tr>
-              <th className="border px-3 py-2">Name</th>
-              <th className="border px-3 py-2">Email</th>
-              <th className="border px-3 py-2">Department</th>
-              <th className="border px-3 py-2">Month</th>
-              <th className="border px-3 py-2">Present</th>
-              <th className="border px-3 py-2">Half</th>
-              <th className="border px-3 py-2">Absent</th>
-              <th className="border px-3 py-2">Leaves Taken</th>
-              <th className="border px-3 py-2">Extra Leaves</th>
-              <th className="border px-3 py-2">Carry Forward</th>
-              <th className="border px-3 py-2">Total Days</th>
-              <th className="border px-3 py-2">Total Hours</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary && (
-              <tr className="bg-white">
-                <td className="border px-3 py-2">{summary.name}</td>
-                <td className="border px-3 py-2">{summary.email}</td>
-                <td className="border px-3 py-2">{summary.department}</td>
-                <td className="border px-3 py-2">{summary.month}</td>
-                <td className="border px-3 py-2">{summary.presentDays}</td>
-                <td className="border px-3 py-2">{summary.halfDays}</td>
-                <td className="border px-3 py-2">{summary.absentDays}</td>
-                <td className="border px-3 py-2">{summary.leavesTaken}</td>
-                <td className="border px-3 py-2">{summary.extraLeaves}</td>
-                <td className="border px-3 py-2">
-                  {summary.carryForwardLeaves}
-                </td>
-                <td className="border px-3 py-2">{summary.totalWorkingDays}</td>
-                <td className="border px-3 py-2">{summary.totalmonthHours}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full table-auto border text-sm text-center shadow min-w-[900px]">
+            <thead className="bg-green-100 dark:bg-green-900 text-black dark:text-white font-bold">
+              <tr>
+                {[
+                  "Name",
+                  "Email",
+                  "Department",
+                  "Month",
+                  "Present",
+                  "Half",
+                  "Absent",
+                  "Leaves Taken",
+                  "Extra Leaves",
+                  "Carry Forward",
+                  "Total Days",
+                  "Working Days (Till Today)",
+                  "Total Hours",
+                ].map((head, i) => (
+                  <th
+                    key={i}
+                    className={`border px-3 py-2 ${
+                      head.includes("Working Days") ? "text-blue-600" : ""
+                    }`}
+                  >
+                    {head}
+                  </th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {summary && (
+                <tr className="bg-white dark:bg-gray-800 transition">
+                  <td className="border px-3 py-2">{summary.name}</td>
+                  <td className="border px-3 py-2">{summary.email}</td>
+                  <td className="border px-3 py-2">{summary.department}</td>
+                  <td className="border px-3 py-2">{summary.month}</td>
+                  <td className="border px-3 py-2">{summary.presentDays}</td>
+                  <td className="border px-3 py-2">{summary.halfDays}</td>
+                  <td className="border px-3 py-2">{summary.absentDays}</td>
+                  <td className="border px-3 py-2">{summary.leavesTaken}</td>
+                  <td className="border px-3 py-2">{summary.extraLeaves}</td>
+                  <td className="border px-3 py-2">
+                    {summary.carryForwardLeaves}
+                  </td>
+                  <td className="border px-3 py-2">
+                    {summary.totalWorkingDays}
+                  </td>
+                  <td className="border px-3 py-2 text-blue-600">
+                    {summary.workingDaysTillToday}
+                  </td>
+                  <td className="border px-3 py-2">
+                    {summary.totalmonthHours}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Charts Section */}
+      {/* Charts */}
       <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Pie Chart */}
-        <div className="bg-white shadow rounded p-4">
-          <h2 className="text-center font-semibold mb-2">
+        <div className="bg-white dark:bg-gray-800 shadow rounded p-4 transition">
+          <h2 className="text-center font-semibold text-gray-700 dark:text-gray-200 mb-2">
             📊 Leave vs Presence
           </h2>
           <ResponsiveContainer width="100%" height={250}>
@@ -232,9 +316,8 @@ export default function AttendanceHistory() {
           </ResponsiveContainer>
         </div>
 
-        {/* Bar Chart */}
-        <div className="bg-white shadow rounded p-4">
-          <h2 className="text-center font-semibold mb-2">
+        <div className="bg-white dark:bg-gray-800 shadow rounded p-4 transition">
+          <h2 className="text-center font-semibold text-gray-700 dark:text-gray-200 mb-2">
             📅 Daily Work Hours
           </h2>
           <ResponsiveContainer width="100%" height={250}>
