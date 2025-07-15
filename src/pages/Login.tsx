@@ -3,6 +3,52 @@ import { useAuthStore } from "../store/authStore";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Lock, Mail } from "lucide-react";
+import axios from "axios";
+import { getAuth } from "firebase/auth";
+import { collection, addDoc } from "firebase/firestore";
+import { db } from "../lib/firebase";
+
+// Detect device type
+const getDeviceType = () => {
+  const ua = navigator.userAgent;
+  if (/mobile/i.test(ua)) return "Mobile";
+  if (/tablet/i.test(ua)) return "Tablet";
+  return "Desktop";
+};
+
+// Fetch public IP
+const getPublicIP = async () => {
+  try {
+    const res = await axios.get("https://api.ipify.org?format=json");
+    return res.data.ip;
+  } catch {
+    return "Unavailable";
+  }
+};
+
+// Detect OS
+const getOS = () => {
+  const { userAgent } = navigator;
+  if (/Windows NT/.test(userAgent)) return "Windows";
+  if (/Mac OS X/.test(userAgent)) return "macOS";
+  if (/Linux/.test(userAgent)) return "Linux";
+  if (/Android/.test(userAgent)) return "Android";
+  if (/iPhone|iPad/.test(userAgent)) return "iOS";
+  return "Unknown";
+};
+
+// Detect browser
+const getBrowser = () => {
+  const { userAgent } = navigator;
+  let match =
+    userAgent.match(
+      /(firefox|msie|trident|chrome|safari|edg|opera|opr)\/?\s*(\d+)/i
+    ) || [];
+  if (/trident/i.test(match[1])) return "IE";
+  if (match[1] === "Chrome" && /Edg\//.test(userAgent)) return "Edge";
+  if (match[1] === "OPR") return "Opera";
+  return match.length > 1 ? `${match[1]} ${match[2]}` : "Unknown";
+};
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -16,8 +62,37 @@ function Login() {
     setIsLoading(true);
     try {
       await signIn(email, password);
-      //toast.success("Successfully logged in!");
-      navigate("/");
+
+      const auth = getAuth();
+      const user = auth.currentUser;
+
+      if (user) {
+        const ipAddress = await getPublicIP();
+        const deviceType = getDeviceType();
+        const os = getOS();
+        const browser = getBrowser();
+        const screenSize = `${window.screen.width}x${window.screen.height}`;
+
+        await addDoc(collection(db, "loginLogs", user.uid, "entries"), {
+          email: user.email,
+          ipAddress,
+          deviceType,
+          os,
+          browser,
+          screenSize,
+          loginTime: new Date().toISOString(),
+        });
+
+        if (deviceType === "Mobile" || deviceType === "Tablet") {
+          toast.error(
+            "Mobile or tablet login is not allowed for this dashboard."
+          );
+          window.location.reload();
+          return;
+        }
+
+        navigate("/");
+      }
     } catch (err) {
       toast.error("Invalid login credentials");
     } finally {

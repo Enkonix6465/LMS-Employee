@@ -393,7 +393,8 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     else base.absentDays += 1;
 
     // ✅ Leave logic
-    if (H === 0) {
+    // ✅ Leave logic (only for first time counts)
+    if (!alreadyCounted && H === 0) {
       const usedLeaves = base.leavesTaken + base.extraLeaves;
       const allowed = 1 + (base.carryForwardLeaves || 0);
       if (usedLeaves < allowed) base.leavesTaken += 1;
@@ -506,16 +507,24 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     if (!workFromHome && logoutLat && logoutLng) {
       const distance = haversineDistance(logoutLat, logoutLng, lat, lng);
       if (distance > 0.05) {
-        alert(`❌ Too far from assigned location at logout.
+        const shouldRetry =
+          confirm(`❌ You are too far from the assigned office location.
+
 Assigned: (${lat.toFixed(6)}, ${lng.toFixed(6)})
 You: (${logoutLat.toFixed(6)}, ${logoutLng.toFixed(6)})
 Address: ${logoutAddress}
-Distance: ${(distance * 1000).toFixed(2)} meters`);
+Distance: ${(distance * 1000).toFixed(2)} meters
 
-        await signOut(auth);
-        sessionStorage.removeItem("locationChecked");
-        window.location.href = "/login";
-        return null;
+Would you like to retry fetching your location before logout?`);
+
+        if (shouldRetry) {
+          return await handleLogoutUpdate(); // 🔁 Retry recursively
+        } else {
+          alert(
+            "⛔ Logout canceled. Please retry when you are at the correct location."
+          );
+          return null;
+        }
       }
     }
 
@@ -903,6 +912,24 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
         Employee data not found.
       </div>
     );
+  const presentDays = profile.presentDays || 0;
+  const totalDays = profile.totalDays || 0;
+  const leavesTaken = profile.leavesTaken || 0;
+  const extraLeaves = profile.extraLeaves || 0;
+  const carryForward = profile.carryForward || 0;
+
+  const attendancePercentage =
+    totalDays > 0 ? ((presentDays / totalDays) * 100).toFixed(2) : "0.00";
+
+  const badgeStats = {
+    badge: badge || "🥉 Bronze",
+    presentDays,
+    totalDays,
+    leavesTaken,
+    extraLeaves,
+    carryForward,
+    attendancePercentage,
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 transition-colors duration-300">
@@ -972,10 +999,32 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
               <p className="font-medium text-gray-700 dark:text-yellow-100 mb-1">
                 Compliance Badge
               </p>
-              <div className="text-2xl text-gray-800 dark:text-white">
-                {badge}
+              <div className="text-2xl text-gray-800 dark:text-white mb-2">
+                {badgeStats.badge}
+              </div>
+              <div className="text-sm text-gray-700 dark:text-gray-100 space-y-1">
+                <p>
+                  🎯 Present Days: <strong>{badgeStats.presentDays}</strong>
+                </p>
+                <p>
+                  📆 Total Days: <strong>{badgeStats.totalDays}</strong>
+                </p>
+                <p>
+                  📋 Leaves Taken: <strong>{badgeStats.leavesTaken}</strong>
+                </p>
+                <p>
+                  ➕ Extra Leaves: <strong>{badgeStats.extraLeaves}</strong>
+                </p>
+                <p>
+                  🔁 Carry Forward: <strong>{badgeStats.carryForward}</strong>
+                </p>
+                <p>
+                  📊 Attendance %:{" "}
+                  <strong>{badgeStats.attendancePercentage}%</strong>
+                </p>
               </div>
             </div>
+
             <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg shadow-sm border dark:border-gray-700">
               <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
                 Login Time

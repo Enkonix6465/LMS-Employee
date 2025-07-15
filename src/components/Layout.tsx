@@ -147,13 +147,13 @@ function Layout() {
               </p>
             </div>
           </div>
-          <button
+          {/* <button
             onClick={() => signOut()}
             className="mt-4 flex items-center text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
           >
             <LogOut className="h-5 w-5 mr-2" />
             Sign out
-          </button>
+          </button>*/}
         </div>
       </aside>
 
