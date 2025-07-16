@@ -89,11 +89,13 @@ function Layout() {
         <nav className="p-4 space-y-1 overflow-y-auto max-h-[calc(100vh-160px)] scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-gray-600 transition-all duration-300">
           {[
             { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+
             {
               path: "/AttendanceHistory",
               icon: Calendar,
               label: "Attendance History",
             },
+
             {
               path: "/ViewPayslip",
               icon: Calendar,

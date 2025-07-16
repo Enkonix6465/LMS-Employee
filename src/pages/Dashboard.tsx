@@ -137,6 +137,28 @@ export default function EmployeeSelfProfile() {
       alert("❌ Location assignment not found for today.");
       return;
     }
+    // 🔐 Shift enforcement before location check
+    const shiftRef = doc(db, "shiftAssignments", userId, "dates", date);
+    const shiftSnap = await getDoc(shiftRef);
+
+    if (shiftSnap.exists()) {
+      const { startTime, endTime } = shiftSnap.data();
+      const now = new Date();
+      const [h, m, s] = now.toLocaleTimeString("en-GB").split(":").map(Number);
+      const nowSec = h * 3600 + m * 60 + s;
+
+      const [sh, sm, ss] = startTime.split(":").map(Number);
+      const [eh, em, es] = endTime.split(":").map(Number);
+      const startSec = sh * 3600 + sm * 60 + ss;
+      const endSec = eh * 3600 + em * 60 + es;
+
+      if (nowSec < startSec || nowSec > endSec) {
+        alert(`⛔ You can only login between ${startTime} and ${endTime}`);
+        await signOut(auth);
+        window.location.href = "/login";
+        return;
+      }
+    }
 
     const assignment = assignmentSnap.data();
     const { lat, lng, workFromHome } = assignment;

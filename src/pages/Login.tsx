@@ -91,7 +91,7 @@ function Login() {
           return;
         }
 
-        navigate("/");
+        navigate("/ShiftCheckPage");
       }
     } catch (err) {
       toast.error("Invalid login credentials");

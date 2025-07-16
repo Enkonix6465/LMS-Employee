@@ -2,6 +2,9 @@ import React, { useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "./store/authStore";
 import { useThemeStore } from "./store/themeStore";
+import { Toaster } from "react-hot-toast";
+
+// Pages
 import Dashboard from "./pages/Dashboard";
 import Calendar from "./pages/Calendar";
 import Projects from "./pages/Projects";
@@ -10,7 +13,6 @@ import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import UserManagement from "./pages/UserManagement";
-import { Toaster } from "react-hot-toast";
 import AttendanceHistory from "./pages/AttendanceHistory";
 import CalendarAttendancePage from "./pages/CalendarAttendancePage";
 import LeaveApplicationPage from "./pages/LeaveApplicationPage";
@@ -19,16 +21,16 @@ import ProjectTeam from "./pages/ProjectTeam";
 import AttendanceSummaryPage from "./pages/AttendanceSummaryPage";
 import EmployeeLeaveHistory from "./pages/EmployeeLeaveHistory";
 import ViewPayslip from "./pages/ViewPayslip";
+import ShiftCheckPage from "./pages/ShiftCheckPage";
+
 function App() {
   const { user, loading } = useAuthStore();
   const { theme } = useThemeStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        navigate("/login");
-      }
+    if (!loading && !user) {
+      navigate("/login");
     }
   }, [user, loading, navigate]);
 
@@ -49,13 +51,21 @@ function App() {
     <>
       <Toaster position="top-right" />
       <Routes>
+        {/* Login Route */}
         <Route
           path="/login"
-          element={!user ? <Login /> : <Navigate to="/" />}
+          element={!user ? <Login /> : <Navigate to="/shift-check" />}
         />
+
+        {/* Shift Check Route */}
+        <Route
+          path="/shift-check"
+          element={user ? <ShiftCheckPage /> : <Navigate to="/login" />}
+        />
+
+        {/* Authenticated and Shift-Validated Layout Routes */}
         <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
           <Route index element={<Dashboard />} />
-
           <Route path="AttendanceHistory" element={<AttendanceHistory />} />
           <Route
             path="AttendanceSummaryPage"
@@ -82,6 +92,8 @@ function App() {
           <Route path="ChatMeetingPage" element={<ChatMeetingPage />} />
           <Route path="ProjectTeam" element={<ProjectTeam />} />
         </Route>
+
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </>
