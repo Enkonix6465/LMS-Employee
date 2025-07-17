@@ -14,17 +14,35 @@ const ShiftCheckPage = () => {
     "checking"
   );
   const [message, setMessage] = useState("");
-  const [currentTime, setCurrentTime] = useState(
-    new Date().toLocaleTimeString()
-  );
+  const [currentTime, setCurrentTime] = useState("");
   const [countdown, setCountdown] = useState(10);
   const [shiftTime, setShiftTime] = useState({ startTime: "", endTime: "" });
 
-  // Update current time every second
+  // Fetch current server time from timeapi.io
+  const fetchServerTime = async () => {
+    try {
+      const response = await fetch(
+        "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata"
+      );
+      const data = await response.json();
+      return `${data.hour}:${data.minute}:${data.seconds}`;
+    } catch (error) {
+      console.error("❌ Failed to fetch server time:", error);
+      return null;
+    }
+  };
+
+  // Update current time every second using server time
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString());
-    }, 1000);
+    let interval: NodeJS.Timeout;
+    const updateTime = async () => {
+      const serverTime = await fetchServerTime();
+      if (serverTime) setCurrentTime(serverTime);
+    };
+
+    updateTime(); // Initial load
+
+    interval = setInterval(updateTime, 1000); // Repeat every second
     return () => clearInterval(interval);
   }, []);
 
@@ -33,7 +51,6 @@ const ShiftCheckPage = () => {
     navigate("/login", { replace: true });
   };
 
-  // Check shift timing once on auth change
   useEffect(() => {
     const checkShift = async (user: any) => {
       const today = getCurrentDate();
@@ -49,9 +66,11 @@ const ShiftCheckPage = () => {
       const { startTime, endTime } = shiftSnap.data();
       setShiftTime({ startTime, endTime });
 
-      const now = new Date();
-      const [h, m, s] = now.toLocaleTimeString("en-GB").split(":").map(Number);
-      const nowSec = h * 3600 + m * 60 + s;
+      const response = await fetch(
+        "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata"
+      );
+      const data = await response.json();
+      const nowSec = data.hour * 3600 + data.minute * 60 + data.seconds;
 
       const [sh, sm, ss] = startTime.split(":").map(Number);
       const [eh, em, es] = endTime.split(":").map(Number);
@@ -74,7 +93,6 @@ const ShiftCheckPage = () => {
         return;
       }
 
-      // Inside shift
       setStatus("valid");
       setMessage("✅ You are within your shift time.");
     };
@@ -85,7 +103,6 @@ const ShiftCheckPage = () => {
     });
   }, [auth, db, navigate]);
 
-  // Handle countdown & redirection after message is shown
   useEffect(() => {
     if (status === "none" || status === "early") {
       let sec = 10;
@@ -116,7 +133,6 @@ const ShiftCheckPage = () => {
     }
   }, [status]);
 
-  // Hide shift page if already navigating to dashboard
   if (status === "valid" && countdown === 0) return null;
 
   return (
