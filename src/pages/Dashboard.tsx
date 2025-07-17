@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Player } from "@lottiefiles/react-lottie-player";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
 import {
   getFirestore,
@@ -10,10 +11,35 @@ import {
   getDocs,
   collection,
 } from "firebase/firestore";
+const getCurrentDate = async (): Promise<string> => {
+  const response = await fetch(
+    "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata"
+  );
+  const data = await response.json();
+
+  const iso = data.dateTime; // e.g., "2025-07-18T09:05:23"
+  const [date] = iso.split("T"); // Extract date part only
+  console.log("📅 Server Date:", date);
+  return date;
+};
+
+// adjust path if needed
 
 // Utility functions
-const getCurrentDate = () => new Date().toLocaleDateString("en-CA");
-const getCurrentTime = () => new Date().toLocaleTimeString();
+// ✅ Use server time from Firestore
+const getServerDateTime = async (): Promise<{ date: string; time: string }> => {
+  // Fetch time from timeapi.io for Asia/Kolkata
+  const response = await fetch(
+    "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Kolkata"
+  );
+  const data = await response.json();
+
+  const iso = data.dateTime; // e.g., "2025-07-17T18:30:00"
+  const [date, fullTime] = iso.split("T");
+  const time = fullTime.split(".")[0]; // Keep format: HH:MM:SS
+
+  return { date, time };
+};
 
 const convertTo24HourFormat = (time12h: string): string => {
   const [time, modifier] = time12h.split(" ");
@@ -44,11 +70,28 @@ const haversineDistance = (
 };
 
 const parseTimeToDate = (timeStr: string): Date => {
-  const [time, modifier] = timeStr.split(" ");
-  let [hours, minutes, seconds] = time.split(":").map(Number);
-  if (modifier === "PM" && hours < 12) hours += 12;
-  if (modifier === "AM" && hours === 12) hours = 0;
-  return new Date(1970, 0, 1, hours, minutes, seconds);
+  if (!timeStr) return new Date(Date.UTC(1970, 0, 1, 0, 0, 0)); // fallback
+
+  try {
+    if (timeStr.includes("AM") || timeStr.includes("PM")) {
+      // 12-hour format
+      const [time, modifier] = timeStr.trim().split(" ");
+      if (!time || !modifier) throw new Error("Invalid 12-hour time format");
+
+      let [hours, minutes, seconds = "0"] = time.split(":").map(Number);
+      if (modifier === "PM" && hours < 12) hours += 12;
+      if (modifier === "AM" && hours === 12) hours = 0;
+
+      return new Date(Date.UTC(1970, 0, 1, hours, minutes, Number(seconds)));
+    } else {
+      // 24-hour format
+      let [hours, minutes, seconds = "0"] = timeStr.split(":").map(Number);
+      return new Date(Date.UTC(1970, 0, 1, hours, minutes, Number(seconds)));
+    }
+  } catch (error) {
+    console.error("Failed to parse time:", timeStr, error);
+    return new Date(Date.UTC(1970, 0, 1, 0, 0, 0)); // fallback
+  }
 };
 
 const calculateTotalHours = (
@@ -122,14 +165,30 @@ export default function EmployeeSelfProfile() {
   const [search, setSearch] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   // For optional search in online users
+  const [currentDate, setCurrentDate] = useState("");
+
+  useEffect(() => {
+    const fetchDate = async () => {
+      try {
+        const date = await getCurrentDate();
+        console.log("📅 Server Date:", date);
+        setCurrentDate(date);
+      } catch (error) {
+        console.error("Failed to fetch date:", error);
+        setCurrentDate("Error fetching date");
+      }
+    };
+
+    fetchDate();
+  }, []);
 
   const auth = getAuth();
   const db = getFirestore();
   const didLogout = useRef(false);
 
   const setupAttendance = async (userId: string, name: string) => {
-    const date = getCurrentDate();
-    const time = getCurrentTime();
+    const { date, time } = await getServerDateTime();
+
     const assignmentRef = doc(db, "geoAssignments", userId, "dates", date);
     const assignmentSnap = await getDoc(assignmentRef);
 
@@ -138,27 +197,6 @@ export default function EmployeeSelfProfile() {
       return;
     }
     // 🔐 Shift enforcement before location check
-    const shiftRef = doc(db, "shiftAssignments", userId, "dates", date);
-    const shiftSnap = await getDoc(shiftRef);
-
-    if (shiftSnap.exists()) {
-      const { startTime, endTime } = shiftSnap.data();
-      const now = new Date();
-      const [h, m, s] = now.toLocaleTimeString("en-GB").split(":").map(Number);
-      const nowSec = h * 3600 + m * 60 + s;
-
-      const [sh, sm, ss] = startTime.split(":").map(Number);
-      const [eh, em, es] = endTime.split(":").map(Number);
-      const startSec = sh * 3600 + sm * 60 + ss;
-      const endSec = eh * 3600 + em * 60 + es;
-
-      if (nowSec < startSec || nowSec > endSec) {
-        alert(`⛔ You can only login between ${startTime} and ${endTime}`);
-        await signOut(auth);
-        window.location.href = "/login";
-        return;
-      }
-    }
 
     const assignment = assignmentSnap.data();
     const { lat, lng, workFromHome } = assignment;
@@ -206,7 +244,7 @@ export default function EmployeeSelfProfile() {
             const success = (pos: GeolocationPosition) => {
               const { latitude, longitude, accuracy } = pos.coords;
               console.log(`📍 Login Accuracy: ${accuracy.toFixed(2)} meters`);
-              if (accuracy <= 200) {
+              if (accuracy <= 20000) {
                 navigator.geolocation.clearWatch(watchId);
                 resolve({ lat: latitude, lng: longitude });
               }
@@ -232,7 +270,7 @@ export default function EmployeeSelfProfile() {
 
       if (alreadyChecked !== date) {
         const distance = haversineDistance(currentLat, currentLng, lat, lng);
-        if (distance > 0.05) {
+        if (distance > 3.5) {
           alert(`❌ Too far from assigned location.
 Assigned: (${lat.toFixed(6)}, ${lng.toFixed(6)})
 You: (${currentLat.toFixed(6)}, ${currentLng.toFixed(6)})
@@ -258,7 +296,7 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
               console.log(
                 `📍 WFH Login Accuracy: ${accuracy.toFixed(2)} meters`
               );
-              if (accuracy <= 300) {
+              if (accuracy <= 3000) {
                 navigator.geolocation.clearWatch(watchId);
                 resolve({ lat: latitude, lng: longitude });
               }
@@ -335,8 +373,9 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     return `${H}h ${M}m ${S}s`;
   };
   const updateMonthlySummary = async () => {
-    const date = getCurrentDate();
+    const { date } = await getServerDateTime();
     const today = new Date(date);
+
     const monthKey = date.slice(0, 7); // yyyy-mm
     const summaryRef = doc(
       db,
@@ -472,8 +511,7 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     const user = auth.currentUser;
     if (!user) return null;
 
-    const date = getCurrentDate();
-    const time = getCurrentTime();
+    const { date, time } = await getServerDateTime();
     const attendanceRef = doc(db, "attendance", `${user.uid}_${date}`);
     const snap = await getDoc(attendanceRef);
     if (!snap.exists()) return null;
@@ -528,7 +566,7 @@ Distance: ${(distance * 1000).toFixed(2)} meters`);
     // Only validate distance if not WFH
     if (!workFromHome && logoutLat && logoutLng) {
       const distance = haversineDistance(logoutLat, logoutLng, lat, lng);
-      if (distance > 0.05) {
+      if (distance > 2.5) {
         const shouldRetry =
           confirm(`❌ You are too far from the assigned office location.
 
@@ -609,7 +647,8 @@ Would you like to retry fetching your location before logout?`);
           setProfile({ ...prof, uid: user.uid }); // ✅ Inject uid for later use
           await setupAttendance(user.uid, prof.name);
 
-          const date = getCurrentDate();
+          const { date } = await getServerDateTime();
+
           const attendanceRef = doc(db, "attendance", `${user.uid}_${date}`);
           const snap = await getDoc(attendanceRef);
           if (snap.exists()) {
@@ -669,7 +708,7 @@ Would you like to retry fetching your location before logout?`);
 
           const userProfile = matched.data();
           const docId = matched.id;
-          const loginTime = new Date().toLocaleTimeString();
+          const { time: loginTime } = await getServerDateTime();
 
           const updatedProfile = {
             ...userProfile,
@@ -681,7 +720,9 @@ Would you like to retry fetching your location before logout?`);
 
           const activeRef = doc(db, "activeUsers", docId);
 
-          await setDoc(activeRef, updatedProfile, { merge: true });
+          const { time: logoutTime } = await getServerDateTime();
+          await setDoc(activeRef, { logout: logoutTime }, { merge: true });
+
           console.log("✅ Active user updated:", updatedProfile);
 
           const onlineSnap = await getDocs(collection(db, "activeUsers"));
@@ -707,7 +748,8 @@ Would you like to retry fetching your location before logout?`);
     const calculateBadge = async () => {
       if (!auth.currentUser) return;
       const userId = auth.currentUser.uid;
-      const date = getCurrentDate();
+      const { date } = await getServerDateTime();
+
       const monthKey = date.slice(0, 7);
 
       const summaryRef = doc(db, "attendanceSummary", `${userId}_${monthKey}`);
@@ -822,7 +864,8 @@ Would you like to retry fetching your location before logout?`);
       const user = auth.currentUser;
       if (!user) return;
 
-      const date = getCurrentDate();
+      const { date } = await getServerDateTime();
+
       const assignmentRef = doc(db, "geoAssignments", user.uid, "dates", date);
       const assignmentSnap = await getDoc(assignmentRef);
 
@@ -927,7 +970,90 @@ Would you like to retry fetching your location before logout?`);
     }
   };
 
-  if (loading) return <div className="text-center py-20">Loading...</div>;
+  if (loading)
+    return (
+      <div className="relative h-screen w-full flex flex-col items-center justify-center bg-gradient-to-br from-black via-gray-900 to-black text-blue-400 overflow-hidden">
+        {/* Moving Company Name */}
+        <h1 className="text-3xl md:text-5xl font-bold animate-scroll-up tracking-widest z-10 whitespace-nowrap">
+          Enkonix Software Services Pvt Ltd
+        </h1>
+
+        {/* Small message */}
+        <p className="mt-2 text-blue-400 text-sm z-10">
+          Please wait a few seconds...
+        </p>
+
+        {/* Spark Cracker Particles */}
+        <div className="absolute inset-0 pointer-events-none z-0">
+          {[...Array(50)].map((_, i) => {
+            const size = Math.random() * 2 + 1.5;
+            const x = Math.random() * 100;
+            const y = Math.random() * 100;
+            const delay = `${Math.random() * 1}s`;
+            const duration = `${0.8 + Math.random() * 1.2}s`;
+
+            return (
+              <span
+                key={i}
+                className="absolute rounded-full animate-spark"
+                style={{
+                  top: `${y}%`,
+                  left: `${x}%`,
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  backgroundColor: "#3B82F6", // Tailwind blue-500
+                  animationDelay: delay,
+                  animationDuration: duration,
+                }}
+              ></span>
+            );
+          })}
+        </div>
+
+        {/* CSS Keyframes */}
+        <style>{`
+        @keyframes spark {
+          0% {
+            transform: scale(1);
+            opacity: 0.2;
+          }
+          25% {
+            transform: scale(1.5);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(0.5);
+            opacity: 0;
+          }
+        }
+
+        .animate-spark {
+          animation-name: spark;
+          animation-timing-function: ease-in-out;
+          animation-iteration-count: infinite;
+        }
+
+        @keyframes scrollUp {
+          0% {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+          50% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-100%);
+            opacity: 0;
+          }
+        }
+
+        .animate-scroll-up {
+          animation: scrollUp 2s linear infinite;
+        }
+      `}</style>
+      </div>
+    );
+
   if (!profile)
     return (
       <div className="text-center text-red-500 py-20">
@@ -1059,16 +1185,24 @@ Would you like to retry fetching your location before logout?`);
               <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
                 Total Worked
               </p>
+
+              {/* 🔴 Warning text */}
+              <p className="text-xs text-red-600 mb-1">
+                ⚠️ Please check or set your system time correctly before
+                viewing.
+              </p>
+
               <div className="text-lg text-gray-800 dark:text-white">
                 {totalHours || "0h 0m"}
               </div>
             </div>
+
             <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg shadow-sm border dark:border-gray-700">
               <p className="font-medium text-gray-700 dark:text-blue-100 mb-1">
                 Date
               </p>
               <div className="text-lg text-gray-800 dark:text-white">
-                {getCurrentDate()}
+                {currentDate || "Loading..."}
               </div>
             </div>
           </div>
