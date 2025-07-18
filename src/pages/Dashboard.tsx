@@ -725,8 +725,8 @@ Would you like to retry fetching your location before logout?`);
 
           const activeRef = doc(db, "activeUsers", docId);
 
-          const { time: logoutTime } = await getServerDateTime();
-          await setDoc(activeRef, { logout: logoutTime }, { merge: true });
+         await setDoc(activeRef, updatedProfile, { merge: true });
+          console.log("✅ Active user updated:", updatedProfile);
 
           console.log("✅ Active user updated:", updatedProfile);
 
