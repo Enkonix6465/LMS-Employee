@@ -78,22 +78,25 @@ const parseTimeToDate = (timeStr: string): Date => {
       const [time, modifier] = timeStr.trim().split(" ");
       if (!time || !modifier) throw new Error("Invalid 12-hour time format");
 
-      let [hours, minutes, seconds = "0"] = time.split(":").map(Number);
+      let [hours, minutes, seconds = "0"] = time
+        .split(":")
+        .map((val) => Number(val) || 0);
       if (modifier === "PM" && hours < 12) hours += 12;
       if (modifier === "AM" && hours === 12) hours = 0;
 
-      return new Date(Date.UTC(1970, 0, 1, hours, minutes, Number(seconds)));
+      return new Date(Date.UTC(1970, 0, 1, hours, minutes, seconds));
     } else {
       // 24-hour format
-      let [hours, minutes, seconds = "0"] = timeStr.split(":").map(Number);
-      return new Date(Date.UTC(1970, 0, 1, hours, minutes, Number(seconds)));
+      let [hours, minutes, seconds = "0"] = timeStr
+        .split(":")
+        .map((val) => Number(val) || 0);
+      return new Date(Date.UTC(1970, 0, 1, hours, minutes, seconds));
     }
   } catch (error) {
     console.error("Failed to parse time:", timeStr, error);
     return new Date(Date.UTC(1970, 0, 1, 0, 0, 0)); // fallback
   }
 };
-
 const calculateTotalHours = (
   sessions: { login: string; logout: string }[],
   includeCurrent = false
@@ -108,8 +111,10 @@ const calculateTotalHours = (
       const logoutDate = logout
         ? parseTimeToDate(logout)
         : parseTimeToDate(new Date().toLocaleTimeString());
+
       let diff = (logoutDate.getTime() - loginDate.getTime()) / 1000;
-      if (diff < 0) diff += 86400;
+      if (diff < 0) diff += 86400; // handle day rollover
+
       totalSec += diff;
     } catch (err) {
       console.error("Time parse error", err);
